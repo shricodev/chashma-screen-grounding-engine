@@ -1,0 +1,15 @@
+__pycache__/
+*.py[cod]
+.venv/
+.env
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+dist/
+
+# generated data, checkpoints, reports
+/data/
+/runs/
+/checkpoints/
+/reports/
+/wandb/
