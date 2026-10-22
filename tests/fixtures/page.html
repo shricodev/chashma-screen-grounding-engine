@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Fixture</title>
+<style>
+  body { margin: 0; font: 16px sans-serif; }
+  nav { display: flex; gap: 12px; padding: 12px; }
+  .modal { position: absolute; left: 400px; top: 200px; width: 300px; height: 200px; background: #fff; border: 1px solid #000; }
+  .under { position: absolute; left: 450px; top: 250px; }
+  .far { position: absolute; top: 3000px; }
+</style>
+</head>
+<body>
+  <nav>
+    <a href="/pricing" id="pricing">Pricing</a>
+    <button aria-label="Search" id="search"><svg width="16" height="16"><circle cx="8" cy="8" r="6"/></svg></button>
+    <input type="email" placeholder="you@example.com" id="email">
+    <button style="display:none" id="hidden">Hidden</button>
+    <button style="visibility:hidden" id="invisible">Invisible</button>
+    <button disabled id="disabled">Disabled</button>
+  </nav>
+  <button class="under" id="covered">Covered by modal</button>
+  <div class="modal"><button id="close">Close</button></div>
+  <a class="far" href="/footer" id="far">Far below</a>
+  <div aria-hidden="true"><button id="ariahidden">Aria hidden</button></div>
+</body>
+</html>
