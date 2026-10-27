@@ -341,4 +341,6 @@ def load_seeds(path: Path, limit: int | None = None) -> list[str]:
 
 def iter_captures(root: Path) -> Iterable[PageCapture]:
     for path in sorted(root.glob("*/*.json")):
+        if path.name.endswith(".instr.json"):
+            continue
         yield PageCapture.model_validate(json.loads(path.read_text()))
