@@ -63,7 +63,7 @@ class VLMGrounder:
 
         self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
         dtype = torch.bfloat16 if self.device == "cuda" else torch.float32
-        model = AutoModelForImageTextToText.from_pretrained(base, torch_dtype=dtype)
+        model = AutoModelForImageTextToText.from_pretrained(base, dtype=dtype)
         if adapter.exists():
             from peft import PeftModel
 
