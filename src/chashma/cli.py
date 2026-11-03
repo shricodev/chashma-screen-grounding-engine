@@ -92,5 +92,106 @@ def build(
     console.print(table)
 
 
+@app.command()
+def train(
+    config: Path = typer.Option(Path("configs/train_256m.yaml")),
+    max_train_samples: int | None = typer.Option(None),
+    epochs: float | None = typer.Option(None),
+    output_dir: Path | None = typer.Option(None),
+) -> None:
+    """Fine-tune a small VLM on the built dataset."""
+    from chashma.train.sft import TrainConfig
+    from chashma.train.sft import train as run_train
+
+    logging.getLogger("chashma").setLevel(logging.INFO)
+    cfg = TrainConfig.from_yaml(
+        config, max_train_samples=max_train_samples, epochs=epochs, output_dir=output_dir
+    )
+    out = run_train(cfg)
+    console.print(f"saved to {out}")
+
+
+@app.command("eval")
+def eval_cmd(
+    model: str = typer.Option(..., help="checkpoint dir, HF id, or provider:model"),
+    dataset: str = typer.Option("chashma", help="'chashma' (our test split) or 'screenspot'"),
+    data_dir: Path = typer.Option(DATASET),
+    split: str = typer.Option("test"),
+    platform: list[str] | None = typer.Option(None, help="screenspot platforms, e.g. web"),
+    limit: int | None = typer.Option(None),
+    concurrency: int = typer.Option(8, help="parallel requests for API models"),
+    out: Path = typer.Option(Path("reports")),
+) -> None:
+    """Measure click accuracy and write a report."""
+    from chashma.eval.harness import evaluate, examples_from_samples, write_report
+    from chashma.model.grounder import load_grounder
+
+    if dataset == "screenspot":
+        from chashma.eval.screenspot import load_screenspot
+
+        examples = load_screenspot(platforms=platform, limit=limit)
+    else:
+        from chashma.data.build import load_samples
+
+        samples, root = load_samples(data_dir, split)
+        examples = examples_from_samples(samples[:limit] if limit else samples, root)
+
+    report = evaluate(load_grounder(model), examples, dataset, concurrency=concurrency)
+    path = write_report(report, out)
+
+    table = Table(f"{report.model} on {dataset}", "n", "accuracy")
+    table.add_row("overall", str(report.n), f"{report.accuracy:.1%}")
+    for key, values in report.breakdown.items():
+        for value, m in values.items():
+            table.add_row(f"  {key}={value}", str(m["n"]), f"{m['accuracy']:.1%}")
+    console.print(table)
+    console.print(
+        f"parse rate {report.parse_rate:.1%} | latency p50 {report.latency_p50_ms:.0f}ms "
+        f"p95 {report.latency_p95_ms:.0f}ms | report: {path}"
+    )
+
+
+@app.command()
+def predict(
+    image: Path = typer.Argument(..., exists=True),
+    instruction: str = typer.Argument(...),
+    model: str = typer.Option("checkpoints/chashma-256m"),
+    save: Path | None = typer.Option(None, help="write the screenshot with the click drawn"),
+) -> None:
+    """Ground one instruction on one screenshot."""
+    from PIL import Image, ImageDraw
+
+    from chashma.model.grounder import load_grounder
+
+    img = Image.open(image).convert("RGB")
+    pred = load_grounder(model).predict(img, instruction)
+    if pred.point is None:
+        console.print(f"[red]could not parse a point from:[/red] {pred.raw!r}")
+        raise typer.Exit(1)
+    x, y = pred.point.to_pixels(*img.size)
+    console.print(f"click at ({x}, {y})  raw={pred.raw!r}  {pred.latency_ms:.0f}ms")
+    if save:
+        draw = ImageDraw.Draw(img)
+        r = max(6, img.width // 120)
+        draw.ellipse([x - r, y - r, x + r, y + r], outline="#ff1744", width=4)
+        draw.line([x - 2 * r, y, x + 2 * r, y], fill="#ff1744", width=2)
+        draw.line([x, y - 2 * r, x, y + 2 * r], fill="#ff1744", width=2)
+        img.save(save)
+
+
+@app.command()
+def serve(
+    model: str = typer.Option("checkpoints/chashma-256m"),
+    host: str = typer.Option("127.0.0.1"),
+    port: int = typer.Option(8000),
+) -> None:
+    """Serve the grounding API."""
+    import uvicorn
+
+    from chashma.serve.app import create_app
+
+    uvicorn.run(create_app(model), host=host, port=port)
+
+
 if __name__ == "__main__":
     app()
