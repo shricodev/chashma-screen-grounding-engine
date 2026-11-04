@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import hashlib
 import itertools
 import json
@@ -239,10 +240,8 @@ class Crawler:
         if resp is None or resp.status >= 400:
             self.stats.skipped_blocked += 1
             return False
-        try:
+        with contextlib.suppress(PlaywrightError):
             await page.wait_for_load_state("networkidle", timeout=5000)
-        except PlaywrightError:
-            pass
         if screen > 0:
             await page.evaluate("(y) => window.scrollTo(0, y)", screen * viewport.height * 0.9)
         await page.wait_for_timeout(self.cfg.settle_ms)

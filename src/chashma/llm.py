@@ -29,7 +29,7 @@ class VisionLLM:
     def __init__(self, spec: str, max_tokens: int = 2048):
         provider, _, model = spec.partition(":")
         if provider not in ("anthropic", "openai") or not model:
-            raise ValueError(f"model must look like 'anthropic:<model>' or 'openai:<model>': {spec}")
+            raise ValueError(f"expected 'anthropic:<model>' or 'openai:<model>', got {spec!r}")
         self.spec, self.provider, self.model = spec, provider, model
         self.max_tokens = max_tokens
         self.usage = Usage()
