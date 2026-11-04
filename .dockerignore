@@ -1,0 +1,7 @@
+.venv
+.git
+data
+checkpoints
+reports
+runs
+**/__pycache__
