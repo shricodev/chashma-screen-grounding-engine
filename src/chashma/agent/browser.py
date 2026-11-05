@@ -41,6 +41,22 @@ try a different description or a different approach."""
 
 ACTIONS = {"click", "type", "scroll", "press", "navigate", "back", "done"}
 
+ACTION_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "action": {"type": "string", "enum": sorted(ACTIONS)},
+        "target": {"type": "string"},
+        "text": {"type": "string"},
+        "submit": {"type": "boolean"},
+        "direction": {"type": "string", "enum": ["up", "down"]},
+        "key": {"type": "string"},
+        "url": {"type": "string"},
+        "answer": {"type": "string"},
+        "reason": {"type": "string"},
+    },
+    "required": ["action"],
+}
+
 
 @dataclass
 class Step:
@@ -146,7 +162,7 @@ class BrowserAgent:
         )
         try:
             reply = await self.planner.ask(
-                encode_image(image, self.planner_max_side), prompt, json_mode=True
+                encode_image(image, self.planner_max_side), prompt, schema=ACTION_SCHEMA
             )
             step.action = parse_json(reply.text)
             if step.action.get("action") not in ACTIONS:

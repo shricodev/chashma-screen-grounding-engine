@@ -42,13 +42,26 @@ class VisionLLM:
 
             self._client = AsyncOpenAI(max_retries=4)
 
-    async def ask(self, image: bytes, prompt: str, media_type: str = "image/jpeg",
-                  json_mode: bool = False) -> VisionReply:
+    async def ask(
+        self,
+        image: bytes,
+        prompt: str,
+        media_type: str = "image/jpeg",
+        schema: dict | None = None,
+    ) -> VisionReply:
         b64 = base64.b64encode(image).decode()
         if self.provider == "anthropic":
+            extra = {}
+            if schema is not None:
+                extra = {
+                    "tools": [{"name": "respond", "description": "Submit the answer.",
+                               "input_schema": schema}],
+                    "tool_choice": {"type": "tool", "name": "respond"},
+                }
             resp = await self._client.messages.create(
                 model=self.model,
                 max_tokens=self.max_tokens,
+                **extra,
                 messages=[{
                     "role": "user",
                     "content": [
@@ -58,10 +71,15 @@ class VisionLLM:
                     ],
                 }],
             )
-            text = "".join(b.text for b in resp.content if b.type == "text")
+            if schema is not None:
+                text = next(
+                    (json.dumps(b.input) for b in resp.content if b.type == "tool_use"), ""
+                )
+            else:
+                text = "".join(b.text for b in resp.content if b.type == "text")
             reply = VisionReply(text, resp.usage.input_tokens, resp.usage.output_tokens)
         else:
-            extra = {"response_format": {"type": "json_object"}} if json_mode else {}
+            extra = {"response_format": {"type": "json_object"}} if schema is not None else {}
             resp = await self._client.chat.completions.create(
                 model=self.model,
                 max_completion_tokens=self.max_tokens,

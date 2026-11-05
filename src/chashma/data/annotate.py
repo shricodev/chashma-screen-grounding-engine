@@ -52,6 +52,25 @@ _LEAKS_OVERLAY = re.compile(
 )
 MAX_INSTRUCTION_CHARS = 160
 
+REPLY_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "marks": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "id": {"type": "integer"},
+                    "skip": {"type": "boolean"},
+                    **{style: {"type": "string"} for style in STYLES},
+                },
+                "required": ["id"],
+            },
+        }
+    },
+    "required": ["marks"],
+}
+
 
 class Instruction(BaseModel):
     element_idx: int
@@ -125,7 +144,7 @@ async def annotate_capture(
         viewport=capture.viewport.name,
         hints="\n".join(_hint(n, el) for n, el in enumerate(targets, start=1)),
     )
-    reply = await llm.ask(marked, prompt, json_mode=True)
+    reply = await llm.ask(marked, prompt, schema=REPLY_SCHEMA)
     instructions, skipped = parse_annotation(parse_json(reply.text), targets)
     return Annotation(
         capture_id=capture.id,

@@ -98,6 +98,12 @@ This is a {w}x{h} screenshot. Where should I click to: {instruction}
 
 Reply with only the pixel coordinates of the click as JSON: {{"x": <int>, "y": <int>}}"""
 
+POINT_SCHEMA = {
+    "type": "object",
+    "properties": {"x": {"type": "integer"}, "y": {"type": "integer"}},
+    "required": ["x", "y"],
+}
+
 
 class APIGrounder:
     def __init__(self, spec: str, max_side: int = 1280):
@@ -124,7 +130,7 @@ class APIGrounder:
         reply = await self.llm.ask(
             encode_image(image, self.max_side),
             API_PROMPT.format(w=w, h=h, instruction=instruction),
-            json_mode=True,
+            schema=POINT_SCHEMA,
         )
         point = None
         try:
