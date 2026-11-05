@@ -4,6 +4,7 @@ import json
 import logging
 import random
 import shutil
+from collections import defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -13,7 +14,7 @@ from PIL import Image
 from chashma.data.build import load_samples
 from chashma.data.schema import GroundingSample
 from chashma.model.format import build_prompt, encode_point
-from chashma.model.grounder import chat_messages, load_processor
+from chashma.model.grounder import load_processor
 
 log = logging.getLogger(__name__)
 
@@ -51,6 +52,7 @@ class TrainConfig:
     save_steps: int = 200
     max_train_samples: int | None = None
     max_eval_samples: int | None = 300
+    pack_turns: int = 16
     num_workers: int = 2
     seed: int = 0
     report_to: str = "none"
@@ -69,20 +71,55 @@ class TrainConfig:
         return cls(**raw, lora=lora)
 
 
+def pack_by_image(
+    samples: list[GroundingSample], max_turns: int, seed: int = 0
+) -> list[list[GroundingSample]]:
+    by_image: dict[str, list[GroundingSample]] = defaultdict(list)
+    for s in samples:
+        by_image[s.image].append(s)
+    rng = random.Random(seed)
+    groups = []
+    for key in sorted(by_image):
+        by_element: dict[tuple, list[GroundingSample]] = defaultdict(list)
+        for s in by_image[key]:
+            by_element[tuple(s.bbox)].append(s)
+        queues = list(by_element.values())
+        for q in queues:
+            rng.shuffle(q)
+        rng.shuffle(queues)
+        ordered = [q[k] for k in range(max(map(len, queues))) for q in queues if k < len(q)]
+        group: list[GroundingSample] = []
+        for s in ordered:
+            if len(group) >= max_turns or any(g.bbox == s.bbox for g in group):
+                groups.append(group)
+                group = []
+            group.append(s)
+        groups.append(group)
+    return groups
+
+
+def conversation(turns: list[tuple[str, str]]) -> list[dict]:
+    messages = []
+    for i, (prompt, answer) in enumerate(turns):
+        content = [{"type": "image"}] if i == 0 else []
+        messages.append({"role": "user", "content": [*content, {"type": "text", "text": prompt}]})
+        messages.append({"role": "assistant", "content": [{"type": "text", "text": answer}]})
+    return messages
+
+
 class GroundingDataset:
-    def __init__(self, samples: list[GroundingSample], image_root: Path):
-        self.samples = samples
+    def __init__(self, groups: list[list[GroundingSample]], image_root: Path):
+        self.groups = groups
         self.image_root = image_root
 
     def __len__(self) -> int:
-        return len(self.samples)
+        return len(self.groups)
 
     def __getitem__(self, i: int) -> dict:
-        s = self.samples[i]
+        group = self.groups[i]
         return {
-            "image": Image.open(self.image_root / s.image).convert("RGB"),
-            "prompt": build_prompt(s.instruction),
-            "answer": encode_point(s.box.center),
+            "image": Image.open(self.image_root / group[0].image).convert("RGB"),
+            "turns": [(build_prompt(s.instruction), encode_point(s.box.center)) for s in group],
         }
 
 
@@ -91,37 +128,38 @@ class Collator:
         self.processor = processor
         self.tokenizer = processor.tokenizer
         self.tokenizer.padding_side = "right"
-        image_token = getattr(processor, "image_token", "<image>")
-        self.image_token_id = self.tokenizer.convert_tokens_to_ids(image_token)
 
-    def _answer_len(self, prompt_text: str, full_text: str) -> int:
-        n_full = len(self.tokenizer(full_text, add_special_tokens=False).input_ids)
-        n_prompt = len(self.tokenizer(prompt_text, add_special_tokens=False).input_ids)
-        return n_full - n_prompt
+    def _ntok(self, text: str) -> int:
+        return len(self.tokenizer(text, add_special_tokens=False).input_ids)
+
+    def _render(self, turns: list[tuple[str, str]]) -> tuple[str, list[tuple[int, int]]]:
+        template = self.processor.apply_chat_template
+        messages = conversation(turns)
+        full = template(messages)
+        spans = []
+        for k in range(len(turns)):
+            prompt = template(messages[: 2 * k + 1], add_generation_prompt=True)
+            done = template(messages[: 2 * k + 2])
+            if not (full.startswith(done) and done.startswith(prompt)):
+                raise ValueError("chat template is not prefix-stable, can't locate answers")
+            spans.append((self._ntok(prompt), self._ntok(done)))
+        return full, spans
 
     def __call__(self, batch: list[dict]) -> dict:
-        prompts, fulls = [], []
-        for ex in batch:
-            prompts.append(
-                self.processor.apply_chat_template(
-                    chat_messages(ex["prompt"]), add_generation_prompt=True
-                )
-            )
-            fulls.append(
-                self.processor.apply_chat_template(chat_messages(ex["prompt"], ex["answer"]))
-            )
+        rendered = [self._render(ex["turns"]) for ex in batch]
         enc = self.processor(
-            text=fulls,
+            text=[full for full, _ in rendered],
             images=[[ex["image"]] for ex in batch],
             return_tensors="pt",
             padding=True,
         )
-        labels = enc["input_ids"].clone()
-        labels[enc["attention_mask"] == 0] = -100
-        for i, (p, f) in enumerate(zip(prompts, fulls, strict=True)):
-            seq_len = int(enc["attention_mask"][i].sum())
-            labels[i, : seq_len - self._answer_len(p, f)] = -100
-        labels[labels == self.image_token_id] = -100
+        ids = enc["input_ids"]
+        labels = ids.new_full(ids.shape, -100)
+        for i, (full, spans) in enumerate(rendered):
+            # <image> becomes hundreds of tokens, which shifts the answer spans
+            shift = int(enc["attention_mask"][i].sum()) - self._ntok(full)
+            for start, end in spans:
+                labels[i, start + shift : end + shift] = ids[i, start + shift : end + shift]
         enc["labels"] = labels
         return enc
 
@@ -141,7 +179,12 @@ def train(cfg: TrainConfig) -> Path:
     val_samples, _ = load_samples(cfg.dataset, "val", cfg.image_root)
     train_samples = _subset(train_samples, cfg.max_train_samples, cfg.seed)
     val_samples = _subset(val_samples, cfg.max_eval_samples, cfg.seed)
-    log.info("train=%d val=%d", len(train_samples), len(val_samples))
+    train_groups = pack_by_image(train_samples, cfg.pack_turns, cfg.seed)
+    val_groups = pack_by_image(val_samples, cfg.pack_turns, cfg.seed)
+    log.info(
+        "train=%d samples in %d sequences, val=%d samples",
+        len(train_samples), len(train_groups), len(val_samples),
+    )
 
     processor = load_processor(cfg.base_model, cfg.longest_edge)
     # no bf16 on t4, so fp32 weights + fp16 autocast
@@ -204,8 +247,8 @@ def train(cfg: TrainConfig) -> Path:
     trainer = Trainer(
         model=model,
         args=args,
-        train_dataset=GroundingDataset(train_samples, image_root),
-        eval_dataset=GroundingDataset(val_samples, image_root) if has_val else None,
+        train_dataset=GroundingDataset(train_groups, image_root),
+        eval_dataset=GroundingDataset(val_groups, image_root) if has_val else None,
         data_collator=Collator(processor),
     )
     last = get_last_checkpoint(str(cfg.output_dir)) if cfg.output_dir.is_dir() else None
@@ -220,6 +263,7 @@ def train(cfg: TrainConfig) -> Path:
         "longest_edge": cfg.longest_edge,
         "epochs": cfg.epochs,
         "train_samples": len(train_samples),
+        "pack_turns": cfg.pack_turns,
         "lora": cfg.lora.enabled,
     }
     (cfg.output_dir / "chashma.json").write_text(json.dumps(meta, indent=2))

@@ -140,6 +140,31 @@ def test_training_does_not_need_crawler_deps():
     import subprocess
     import sys
 
-    code = "import sys, chashma.train.sft, chashma.eval.harness; print('playwright' in sys.modules)"
+    code = (
+        "import sys, chashma.train.sft, chashma.eval.harness; "
+        "print('playwright' in sys.modules)"
+    )
     out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True)
     assert out.stdout.strip() == "False"
+
+
+def test_packing_never_repeats_an_element():
+    from chashma.data.schema import GroundingSample
+    from chashma.train.sft import pack_by_image
+
+    def sample(i: int, image: str, el: int) -> GroundingSample:
+        return GroundingSample(
+            id=str(i), image=image, image_size=(100, 100), instruction=f"q{i}",
+            bbox=[el / 10, 0, el / 10 + 0.05, 0.1], style="direct", source="t",
+            capture_id=image, domain="d", url="u", viewport="desktop",
+            color_scheme="light", element_role="link", is_icon=False, split="train",
+        )
+
+    samples = [sample(i, img, i % 5) for img in ("a", "b") for i in range(15)]
+    groups = pack_by_image(samples, max_turns=4)
+    assert sorted(s.id + s.image for g in groups for s in g) == sorted(
+        s.id + s.image for s in samples
+    )
+    for g in groups:
+        assert len(g) <= 4 and len({s.image for s in g}) == 1
+        assert len({tuple(s.bbox) for s in g}) == len(g)
