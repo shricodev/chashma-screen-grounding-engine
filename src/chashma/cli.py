@@ -128,17 +128,27 @@ def eval_cmd(
     from chashma.eval.harness import evaluate, examples_from_samples, write_report
     from chashma.model.grounder import load_grounder
 
+    name = dataset
     if dataset == "screenspot":
         from chashma.eval.screenspot import load_screenspot
 
-        examples = load_screenspot(platforms=platform, limit=limit)
+        try:
+            examples = load_screenspot(platforms=platform, limit=limit)
+        except ValueError as e:
+            raise typer.BadParameter(str(e), param_hint="--platform") from e
+        if platform:
+            name = f"screenspot-{'+'.join(sorted(platform))}"
     else:
         from chashma.data.build import load_samples
 
         samples, root = load_samples(data_dir, split)
         examples = examples_from_samples(samples[:limit] if limit else samples, root)
+        name = f"chashma-{split}"
+    if not examples:
+        console.print("[red]no examples matched[/red]")
+        raise typer.Exit(1)
 
-    report = evaluate(load_grounder(model), examples, dataset, concurrency=concurrency)
+    report = evaluate(load_grounder(model), examples, name, concurrency=concurrency)
     path = write_report(report, out)
 
     table = Table(f"{report.model} on {dataset}", "n", "accuracy")

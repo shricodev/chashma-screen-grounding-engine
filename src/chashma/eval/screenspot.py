@@ -5,27 +5,54 @@ from chashma.geometry import Box
 
 HF_DATASET = "rootsautomation/ScreenSpot"
 
+PLATFORM_GROUPS = {
+    "web": {"tool", "shop", "gitlab", "forum"},
+    "mobile": {"ios", "android"},
+    "desktop": {"macos", "windows"},
+}
+SOURCE_TO_GROUP = {src: group for group, srcs in PLATFORM_GROUPS.items() for src in srcs}
 
-def load_screenspot(split: str = "test", platforms: list[str] | None = None,
-                    limit: int | None = None) -> list[EvalExample]:
+
+def resolve_platforms(platforms: list[str] | None) -> set[str] | None:
+    if not platforms:
+        return None
+    sources: set[str] = set()
+    for p in platforms:
+        if p in PLATFORM_GROUPS:
+            sources |= PLATFORM_GROUPS[p]
+        elif p in SOURCE_TO_GROUP:
+            sources.add(p)
+        else:
+            valid = sorted({*PLATFORM_GROUPS, *SOURCE_TO_GROUP})
+            raise ValueError(f"unknown ScreenSpot platform {p!r}, expected one of {valid}")
+    return sources
+
+
+def load_screenspot(
+    split: str = "test", platforms: list[str] | None = None, limit: int | None = None
+) -> list[EvalExample]:
     from datasets import load_dataset
 
+    sources = resolve_platforms(platforms)
     ds = load_dataset(HF_DATASET, split=split)
     examples = []
     for i, row in enumerate(ds):
         source = row["data_source"]
-        if platforms and source not in platforms:
+        if sources is not None and source not in sources:
             continue
         image = row["image"]
         w, h = image.size
-        box = _to_box(row["bbox"], w, h)
         examples.append(
             EvalExample(
                 id=f"screenspot-{i}",
                 instruction=row["instruction"],
-                box=box,
+                box=_to_box(row["bbox"], w, h),
                 load_image=(lambda img=image: img.convert("RGB")),
-                tags={"platform": source, "type": row["data_type"]},
+                tags={
+                    "platform": SOURCE_TO_GROUP.get(source, source),
+                    "source": source,
+                    "type": row["data_type"],
+                },
             )
         )
         if limit and len(examples) >= limit:
