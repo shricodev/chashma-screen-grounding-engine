@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import json
+from collections.abc import Iterator
 from datetime import datetime
+from pathlib import Path
 from typing import Literal
 
 from pydantic import BaseModel, Field
@@ -72,3 +75,10 @@ class GroundingSample(BaseModel):
     @property
     def box(self) -> Box:
         return Box(*self.bbox)
+
+
+def iter_captures(root: Path) -> Iterator[PageCapture]:
+    for path in sorted(root.glob("*/*.json")):
+        if path.name.endswith(".instr.json"):
+            continue
+        yield PageCapture.model_validate(json.loads(path.read_text()))

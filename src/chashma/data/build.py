@@ -10,8 +10,7 @@ from pathlib import Path
 from PIL import Image
 
 from chashma.data.annotate import load_annotation
-from chashma.data.crawler import iter_captures
-from chashma.data.schema import GroundingSample, PageCapture
+from chashma.data.schema import GroundingSample, PageCapture, iter_captures
 from chashma.data.templates import template_instructions
 
 

@@ -134,3 +134,12 @@ def test_publish_prepares_card_and_skips_training_state(tmp_path):
     assert files == {"model.safetensors", "config.json", "chashma.json", "README.md"}
     card = (out / "README.md").read_text()
     assert "base_model: org/base" in card and "1,234" in card and "50.0%" in card
+
+
+def test_training_does_not_need_crawler_deps():
+    import subprocess
+    import sys
+
+    code = "import sys, chashma.train.sft, chashma.eval.harness; print('playwright' in sys.modules)"
+    out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True)
+    assert out.stdout.strip() == "False"

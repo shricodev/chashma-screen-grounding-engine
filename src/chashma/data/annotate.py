@@ -12,9 +12,8 @@ from urllib.parse import urlparse
 from PIL import Image
 from pydantic import BaseModel
 
-from chashma.data.crawler import iter_captures
 from chashma.data.marks import draw_marks, encode_image, select_targets
-from chashma.data.schema import Element, PageCapture
+from chashma.data.schema import Element, PageCapture, iter_captures
 from chashma.llm import Usage, VisionLLM, parse_json
 
 log = logging.getLogger(__name__)
