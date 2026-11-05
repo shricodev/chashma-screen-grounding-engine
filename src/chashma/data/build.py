@@ -141,8 +141,13 @@ def build_dataset(
     return stats
 
 
-def load_samples(dataset_dir: Path, split: str) -> tuple[list[GroundingSample], Path]:
+def load_samples(
+    dataset_dir: Path, split: str, image_root: Path | None = None
+) -> tuple[list[GroundingSample], Path]:
     meta = json.loads((dataset_dir / "meta.json").read_text())
     with (dataset_dir / f"{split}.jsonl").open() as f:
         samples = [GroundingSample.model_validate_json(line) for line in f if line.strip()]
-    return samples, Path(meta["image_root"])
+    for root in (image_root, Path(meta["image_root"]), dataset_dir.parent / "captures"):
+        if root is not None and root.is_dir():
+            return samples, root
+    raise FileNotFoundError(f"image root not found for {dataset_dir}, pass image_root")

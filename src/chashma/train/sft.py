@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import random
+import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -34,6 +35,7 @@ class LoraConfig:
 class TrainConfig:
     base_model: str = "HuggingFaceTB/SmolVLM-256M-Instruct"
     dataset: Path = Path("data/dataset")
+    image_root: Path | None = None
     output_dir: Path = Path("checkpoints/chashma-256m")
     longest_edge: int = 1536
     epochs: float = 2.0
@@ -53,6 +55,7 @@ class TrainConfig:
     seed: int = 0
     report_to: str = "none"
     resume: bool = False
+    keep_checkpoints: bool = True
     lora: LoraConfig = field(default_factory=LoraConfig)
 
     @classmethod
@@ -60,7 +63,7 @@ class TrainConfig:
         raw = yaml.safe_load(path.read_text()) or {}
         raw.update({k: v for k, v in overrides.items() if v is not None})
         lora = LoraConfig(**raw.pop("lora", {}))
-        for key in ("dataset", "output_dir"):
+        for key in ("dataset", "output_dir", "image_root"):
             if key in raw:
                 raw[key] = Path(raw[key])
         return cls(**raw, lora=lora)
@@ -134,15 +137,20 @@ def train(cfg: TrainConfig) -> Path:
     from transformers import AutoModelForImageTextToText, Trainer, TrainingArguments
     from transformers.trainer_utils import get_last_checkpoint
 
-    train_samples, image_root = load_samples(cfg.dataset, "train")
-    val_samples, _ = load_samples(cfg.dataset, "val")
+    train_samples, image_root = load_samples(cfg.dataset, "train", cfg.image_root)
+    val_samples, _ = load_samples(cfg.dataset, "val", cfg.image_root)
     train_samples = _subset(train_samples, cfg.max_train_samples, cfg.seed)
     val_samples = _subset(val_samples, cfg.max_eval_samples, cfg.seed)
     log.info("train=%d val=%d", len(train_samples), len(val_samples))
 
     processor = load_processor(cfg.base_model, cfg.longest_edge)
+    # no bf16 on t4, so fp32 weights + fp16 autocast
+    cuda = torch.cuda.is_available()
+    bf16 = cuda and torch.cuda.get_device_capability()[0] >= 8
     model = AutoModelForImageTextToText.from_pretrained(
-        cfg.base_model, dtype=torch.bfloat16, attn_implementation="sdpa"
+        cfg.base_model,
+        dtype=torch.bfloat16 if bf16 else torch.float32,
+        attn_implementation="sdpa",
     )
     if cfg.freeze_vision:
         for name, param in model.named_parameters():
@@ -177,7 +185,8 @@ def train(cfg: TrainConfig) -> Path:
         lr_scheduler_type="cosine",
         warmup_steps=cfg.warmup_ratio,
         weight_decay=cfg.weight_decay,
-        bf16=True,
+        bf16=bf16,
+        fp16=cuda and not bf16,
         gradient_checkpointing=cfg.gradient_checkpointing,
         logging_steps=cfg.logging_steps,
         eval_strategy="steps" if has_val else "no",
@@ -203,6 +212,7 @@ def train(cfg: TrainConfig) -> Path:
     if cfg.resume and last:
         log.info("resuming from %s", last)
     trainer.train(resume_from_checkpoint=last if cfg.resume else None)
+    trainer.model.to(torch.bfloat16)
     trainer.save_model(str(cfg.output_dir))
     processor.save_pretrained(str(cfg.output_dir))
     meta = {
@@ -213,4 +223,7 @@ def train(cfg: TrainConfig) -> Path:
         "lora": cfg.lora.enabled,
     }
     (cfg.output_dir / "chashma.json").write_text(json.dumps(meta, indent=2))
+    if not cfg.keep_checkpoints:
+        for ckpt in cfg.output_dir.glob("checkpoint-*"):
+            shutil.rmtree(ckpt)
     return cfg.output_dir
