@@ -101,6 +101,7 @@ def train(
     max_train_samples: int | None = typer.Option(None),
     epochs: float | None = typer.Option(None),
     output_dir: Path | None = typer.Option(None),
+    resume: bool = typer.Option(False, help="continue from the last saved checkpoint"),
 ) -> None:
     """Fine-tune a small VLM on the built dataset."""
     from chashma.train.sft import TrainConfig
@@ -108,7 +109,11 @@ def train(
 
     logging.getLogger("chashma").setLevel(logging.INFO)
     cfg = TrainConfig.from_yaml(
-        config, max_train_samples=max_train_samples, epochs=epochs, output_dir=output_dir
+        config,
+        max_train_samples=max_train_samples,
+        epochs=epochs,
+        output_dir=output_dir,
+        resume=resume or None,
     )
     out = run_train(cfg)
     console.print(f"saved to {out}")

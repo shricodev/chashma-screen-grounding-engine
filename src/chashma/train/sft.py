@@ -52,6 +52,7 @@ class TrainConfig:
     num_workers: int = 2
     seed: int = 0
     report_to: str = "none"
+    resume: bool = False
     lora: LoraConfig = field(default_factory=LoraConfig)
 
     @classmethod
@@ -131,6 +132,7 @@ def _subset(samples: list, n: int | None, seed: int) -> list:
 def train(cfg: TrainConfig) -> Path:
     import torch
     from transformers import AutoModelForImageTextToText, Trainer, TrainingArguments
+    from transformers.trainer_utils import get_last_checkpoint
 
     train_samples, image_root = load_samples(cfg.dataset, "train")
     val_samples, _ = load_samples(cfg.dataset, "val")
@@ -197,7 +199,10 @@ def train(cfg: TrainConfig) -> Path:
         eval_dataset=GroundingDataset(val_samples, image_root) if has_val else None,
         data_collator=Collator(processor),
     )
-    trainer.train()
+    last = get_last_checkpoint(str(cfg.output_dir)) if cfg.output_dir.is_dir() else None
+    if cfg.resume and last:
+        log.info("resuming from %s", last)
+    trainer.train(resume_from_checkpoint=last if cfg.resume else None)
     trainer.save_model(str(cfg.output_dir))
     processor.save_pretrained(str(cfg.output_dir))
     meta = {
