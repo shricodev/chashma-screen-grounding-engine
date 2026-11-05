@@ -195,5 +195,45 @@ def serve(
     uvicorn.run(create_app(model), host=host, port=port)
 
 
+@app.command()
+def agent(
+    task: str = typer.Argument(..., help="what the agent should do"),
+    url: str = typer.Option(..., help="start page"),
+    grounder: str = typer.Option(
+        "checkpoints/chashma-256m", help="checkpoint, http://host:port, or provider:model"
+    ),
+    planner: str = typer.Option("anthropic:claude-sonnet-5-5", help="provider:model"),
+    max_steps: int = typer.Option(15),
+    headed: bool = typer.Option(False, help="show the browser window"),
+    out: Path | None = typer.Option(None, help="trajectory dir, default runs/agent/<time>"),
+) -> None:
+    """Run a browser task: the planner decides what to click, chashma finds where."""
+    from datetime import datetime
+
+    from chashma.agent.browser import BrowserAgent
+    from chashma.llm import VisionLLM
+    from chashma.model.grounder import load_grounder
+
+    logging.getLogger("chashma").setLevel(logging.INFO)
+    out = out or Path("runs/agent") / datetime.now().strftime("%Y%m%d-%H%M%S")
+    runner = BrowserAgent(
+        VisionLLM(planner, max_tokens=1024),
+        load_grounder(grounder),
+        out,
+        max_steps=max_steps,
+        headless=not headed,
+    )
+    result = asyncio.run(runner.run(task, url))
+
+    for step in result.steps:
+        console.print(step.describe())
+    status = "[green]done[/green]" if result.finished else "[yellow]gave up[/yellow]"
+    console.print(f"{status}: {result.answer or '-'}")
+    console.print(
+        f"planner tokens {result.planner_input_tokens:,} in / "
+        f"{result.planner_output_tokens:,} out | trajectory: {out}"
+    )
+
+
 if __name__ == "__main__":
     app()

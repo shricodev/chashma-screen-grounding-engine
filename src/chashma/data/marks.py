@@ -44,7 +44,7 @@ def select_targets(
     return picked
 
 
-def _font(size: int) -> ImageFont.ImageFont:
+def load_font(size: int) -> ImageFont.ImageFont:
     for name in ("DejaVuSans-Bold.ttf", "Arial Bold.ttf", "LiberationSans-Bold.ttf"):
         try:
             return ImageFont.truetype(name, size)
@@ -57,7 +57,7 @@ def draw_marks(image: Image.Image, targets: list[Element]) -> Image.Image:
     out = image.convert("RGB").copy()
     draw = ImageDraw.Draw(out)
     w, h = out.size
-    font = _font(max(12, w // 80))
+    font = load_font(max(12, w // 80))
     for n, el in enumerate(targets, start=1):
         color = MARK_COLORS[(n - 1) % len(MARK_COLORS)]
         x1, y1, x2, y2 = el.box.to_pixels(w, h)
