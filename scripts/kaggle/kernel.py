@@ -1,4 +1,5 @@
 import glob
+import os
 import subprocess
 import sys
 import zipfile
@@ -51,6 +52,8 @@ def main() -> None:
     )
     config = WORK / "train.yaml"
     config.write_text(yaml.safe_dump(cfg))
+    # 2 t4s but dataparallel breaks idefics3, so just one
+    os.environ["CUDA_VISIBLE_DEVICES"] = "0"
     sh("nvidia-smi")
     sh("chashma", "train", "--config", str(config), "--epochs", EPOCHS)
 
