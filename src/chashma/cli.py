@@ -206,6 +206,27 @@ def serve(
 
 
 @app.command()
+def publish(
+    repo: str = typer.Option(..., help="Hugging Face repo id, e.g. user/chashma-256m"),
+    model: Path = typer.Option(Path("checkpoints/chashma-256m"), exists=True, file_okay=False),
+    reports: Path = typer.Option(Path("reports"), help="eval reports for the model card"),
+    source_url: str | None = typer.Option(None, help="link to the code, shown on the card"),
+    push: bool = typer.Option(False, help="upload; without it only dist/hf/ is prepared"),
+    private: bool = typer.Option(False),
+) -> None:
+    """Prepare (and optionally upload) a checkpoint + model card for the Hugging Face Hub."""
+    from chashma.publish import publish as run_publish
+
+    result = run_publish(
+        model, repo, reports, push=push, private=private, source_url=source_url
+    )
+    if push:
+        console.print(f"uploaded: {result}")
+    else:
+        console.print(f"prepared {result} (review it, then rerun with --push to upload)")
+
+
+@app.command()
 def agent(
     task: str = typer.Argument(..., help="what the agent should do"),
     url: str = typer.Option(..., help="start page"),

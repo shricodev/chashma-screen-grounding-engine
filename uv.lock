@@ -304,6 +304,7 @@ all = [
     { name = "datasets" },
     { name = "fastapi" },
     { name = "httpx" },
+    { name = "huggingface-hub" },
     { name = "openai" },
     { name = "peft" },
     { name = "playwright" },
@@ -323,6 +324,7 @@ llm = [
 ml = [
     { name = "accelerate" },
     { name = "datasets" },
+    { name = "huggingface-hub" },
     { name = "peft" },
     { name = "torch" },
     { name = "transformers" },
@@ -348,6 +350,7 @@ requires-dist = [
     { name = "datasets", marker = "extra == 'ml'", specifier = ">=3.0" },
     { name = "fastapi", marker = "extra == 'serve'", specifier = ">=0.115" },
     { name = "httpx", marker = "extra == 'crawl'", specifier = ">=0.27" },
+    { name = "huggingface-hub", marker = "extra == 'ml'", specifier = ">=0.26" },
     { name = "numpy", specifier = ">=1.26" },
     { name = "openai", marker = "extra == 'llm'", specifier = ">=1.50" },
     { name = "peft", marker = "extra == 'ml'", specifier = ">=0.13" },

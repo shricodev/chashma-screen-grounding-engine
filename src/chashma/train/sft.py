@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 import random
 from dataclasses import dataclass, field
@@ -199,4 +200,12 @@ def train(cfg: TrainConfig) -> Path:
     trainer.train()
     trainer.save_model(str(cfg.output_dir))
     processor.save_pretrained(str(cfg.output_dir))
+    meta = {
+        "base_model": cfg.base_model,
+        "longest_edge": cfg.longest_edge,
+        "epochs": cfg.epochs,
+        "train_samples": len(train_samples),
+        "lora": cfg.lora.enabled,
+    }
+    (cfg.output_dir / "chashma.json").write_text(json.dumps(meta, indent=2))
     return cfg.output_dir
