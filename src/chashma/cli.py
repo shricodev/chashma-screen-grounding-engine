@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import random
 from pathlib import Path
 
 import typer
@@ -120,7 +121,7 @@ def eval_cmd(
     data_dir: Path = typer.Option(DATASET),
     split: str = typer.Option("test"),
     platform: list[str] | None = typer.Option(None, help="screenspot platforms, e.g. web"),
-    limit: int | None = typer.Option(None),
+    limit: int | None = typer.Option(None, help="seeded random subset of this size"),
     concurrency: int = typer.Option(8, help="parallel requests for API models"),
     out: Path = typer.Option(Path("reports")),
 ) -> None:
@@ -133,7 +134,7 @@ def eval_cmd(
         from chashma.eval.screenspot import load_screenspot
 
         try:
-            examples = load_screenspot(platforms=platform, limit=limit)
+            examples = load_screenspot(platforms=platform)
         except ValueError as e:
             raise typer.BadParameter(str(e), param_hint="--platform") from e
         if platform:
@@ -142,11 +143,14 @@ def eval_cmd(
         from chashma.data.build import load_samples
 
         samples, root = load_samples(data_dir, split)
-        examples = examples_from_samples(samples[:limit] if limit else samples, root)
+        examples = examples_from_samples(samples, root)
         name = f"chashma-{split}"
     if not examples:
         console.print("[red]no examples matched[/red]")
         raise typer.Exit(1)
+    if limit and limit < len(examples):
+        examples = random.Random(0).sample(examples, limit)
+        name = f"{name}-n{limit}"
 
     report = evaluate(load_grounder(model), examples, name, concurrency=concurrency)
     path = write_report(report, out)
