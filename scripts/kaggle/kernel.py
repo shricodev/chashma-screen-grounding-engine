@@ -8,7 +8,6 @@ from pathlib import Path
 INPUT = Path("/kaggle/input")
 WORK = Path("/kaggle/working")
 PINS = ["transformers==5.22.1", "peft==0.21.2", "accelerate==1.15.0"]
-EPOCHS = "1"
 
 
 def sh(*cmd: str) -> None:
@@ -48,6 +47,8 @@ def main() -> None:
         image_root=str(data / "captures"),
         output_dir=str(WORK / "chashma-256m"),
         num_workers=4,
+        batch_size=4,
+        grad_accum=2,
         keep_checkpoints=False,
     )
     config = WORK / "train.yaml"
@@ -55,7 +56,7 @@ def main() -> None:
     # 2 t4s but dataparallel breaks idefics3, so just one
     os.environ["CUDA_VISIBLE_DEVICES"] = "0"
     sh("nvidia-smi")
-    sh("chashma", "train", "--config", str(config), "--epochs", EPOCHS)
+    sh("chashma", "train", "--config", str(config))
 
 
 if __name__ == "__main__":

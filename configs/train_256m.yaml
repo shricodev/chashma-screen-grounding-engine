@@ -2,12 +2,13 @@ base_model: HuggingFaceTB/SmolVLM-256M-Instruct
 dataset: data/dataset
 output_dir: checkpoints/chashma-256m
 longest_edge: 1536
-epochs: 2
-batch_size: 4
+pack_turns: 16
+epochs: 3
+batch_size: 2
 grad_accum: 4
 lr: 1.0e-4
 warmup_ratio: 0.03
 gradient_checkpointing: true
-eval_steps: 200
-save_steps: 200
+eval_steps: 100
+save_steps: 100
 max_eval_samples: 300
