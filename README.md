@@ -82,6 +82,23 @@ scores local checkpoints and API baselines (`anthropic:...`, `openai:...`) on:
 - [ScreenSpot](https://huggingface.co/datasets/rootsautomation/ScreenSpot) (web, plus
   mobile/desktop to measure transfer)
 
+### 6. The agent: plan in words, click with chashma
+
+[`agent/browser.py`](src/chashma/agent/browser.py) splits a browser agent in two. The
+planner LLM sees a downscaled screenshot and only decides *what* to do next, in words
+("type asyncio into the quick search field"). chashma decides *where*. The planner never
+emits coordinates, so it can work from cheap low-res images, and the precise part runs
+locally. Every run saves per-step screenshots with the click drawn on them, a
+`trajectory.json` and a GIF.
+
+```bash
+chashma agent "open the documentation page for the asyncio module" \
+  --url https://docs.python.org/3/ --grounder checkpoints/chashma-256m --headed
+```
+
+`--grounder` also takes `http://localhost:8000` (a running `chashma serve`) or
+`anthropic:<model>` to compare against a frontier model doing both jobs.
+
 ## Results
 
 _Coming once the first full crawl + training run is done._
@@ -91,7 +108,7 @@ _Coming once the first full crawl + training run is done._
 ```bash
 uv sync --all-extras
 uv run playwright install chromium
-export ANTHROPIC_API_KEY=...        # or OPENAI_API_KEY for openai:<model>
+echo "ANTHROPIC_API_KEY=..." > .env    # or OPENAI_API_KEY for openai:<model>
 
 chashma crawl --seeds configs/seeds.txt          # screenshots + boxes -> data/captures
 chashma annotate --model anthropic:claude-haiku-5-5
@@ -118,17 +135,19 @@ docker run --gpus all -p 8000:8000 -v $PWD/checkpoints/chashma-256m:/models/chas
 ```
 src/chashma/
   data/      extract.js, crawler, set-of-marks, annotation, templates, dataset build
-  model/     answer format, local VLM + API grounders
+  model/     answer format, local VLM / API / HTTP grounders
   train/     SFT (full or LoRA)
   eval/      click-accuracy harness, ScreenSpot loader
   serve/     FastAPI app
+  agent/     planner + grounder browser agent
 ```
 
 ## Roadmap
 
-- [ ] first full crawl (Tranco top ~2k) + training run, results table
+- [x] demo agent: Claude plans in text, chashma grounds each step
+- [ ] bigger crawl (Tranco top ~2k)
 - [ ] crop/zoom augmentation for small targets
 - [ ] verifier pass: a second model must click the right mark, or the instruction is dropped
-- [ ] demo agent: Claude plans in text, chashma grounds each step
+- [ ] agent benchmark: task success and cost, chashma vs frontier grounding
 - [ ] ONNX / int8 export for CPU inference
 - [ ] RL fine-tuning with a "click landed in box" reward
