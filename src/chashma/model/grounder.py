@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import io
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -105,9 +106,13 @@ class APIGrounder:
         self.llm = VisionLLM(spec, max_tokens=256)
         self.name = spec
         self.max_side = max_side
+        self._loop: asyncio.AbstractEventLoop | None = None
 
     def predict(self, image: Image.Image, instruction: str) -> Prediction:
-        return asyncio.run(self.apredict(image, instruction))
+        # async client sticks to the first loop it ran on, so reuse one
+        if self._loop is None:
+            self._loop = asyncio.new_event_loop()
+        return self._loop.run_until_complete(self.apredict(image, instruction))
 
     async def apredict(self, image: Image.Image, instruction: str) -> Prediction:
         from chashma.data.marks import encode_image
@@ -130,7 +135,49 @@ class APIGrounder:
         return Prediction(point, reply.text, (time.perf_counter() - start) * 1000)
 
 
+class HTTPGrounder:
+    def __init__(self, base_url: str, timeout_s: float = 30.0):
+        self.base_url = base_url.rstrip("/")
+        self.name = self.base_url
+        self.timeout_s = timeout_s
+
+    def _request(self, image: Image.Image, instruction: str) -> dict:
+        buf = io.BytesIO()
+        image.convert("RGB").save(buf, format="PNG")
+        return {
+            "url": f"{self.base_url}/v1/ground",
+            "files": {"image": ("screenshot.png", buf.getvalue(), "image/png")},
+            "data": {"instruction": instruction},
+        }
+
+    @staticmethod
+    def _parse(resp, started: float) -> Prediction:
+        latency = (time.perf_counter() - started) * 1000
+        if resp.status_code == 502:
+            return Prediction(None, resp.text, latency)
+        resp.raise_for_status()
+        body = resp.json()
+        return Prediction(Point(body["x_norm"], body["y_norm"]), body["raw"], latency)
+
+    def predict(self, image: Image.Image, instruction: str) -> Prediction:
+        import httpx
+
+        start = time.perf_counter()
+        resp = httpx.post(**self._request(image, instruction), timeout=self.timeout_s)
+        return self._parse(resp, start)
+
+    async def apredict(self, image: Image.Image, instruction: str) -> Prediction:
+        import httpx
+
+        start = time.perf_counter()
+        async with httpx.AsyncClient(timeout=self.timeout_s) as client:
+            resp = await client.post(**self._request(image, instruction))
+        return self._parse(resp, start)
+
+
 def load_grounder(spec: str, **kwargs) -> Grounder:
     if spec.startswith(("anthropic:", "openai:")):
         return APIGrounder(spec)
+    if spec.startswith(("http://", "https://")):
+        return HTTPGrounder(spec)
     return VLMGrounder(spec, **kwargs)
