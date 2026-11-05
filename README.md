@@ -6,8 +6,8 @@ an instruction like *"open the pricing page"* and it tells you where to click.
 Computer-use agents spend most of their budget on one question, *where on this
 screen is the thing I want?*, and today they answer it by sending every screenshot
 to a frontier model. chashma is a ~256M-parameter vision-language model fine-tuned
-for just that question, trained entirely on a 6 GB RTX 3060 laptop, on data that
-labels itself.
+for just that question. It trains in under 3.5 GB of VRAM (a 6 GB laptop RTX 3060 or a
+free Kaggle T4), on data that labels itself.
 
 ```bash
 chashma predict shot.png "search for a department" --save out.png
@@ -70,7 +70,13 @@ perceptual hash.
 The model answers in a tiny fixed format, `<point>x,y</point>` on a 0..999 grid,
 so outputs are a few tokens and resolution-independent. The loss is masked to the
 answer tokens only. SmolVLM-256M fits a full fine-tune in bf16 with gradient
-checkpointing; SmolVLM-500M trains with LoRA. Configs are in [`configs/`](configs).
+checkpointing (3.45 GB peak at batch 4); SmolVLM-500M trains with LoRA. Configs are in
+[`configs/`](configs). On pre-Ampere GPUs (T4, P100) it falls back to fp16 autocast.
+
+Long runs on a laptop hit thermal throttling (the 3060 dropped to 210 MHz at 89 °C), so
+[`scripts/kaggle_train.sh`](scripts/kaggle_train.sh) ships the dataset and a wheel to a
+free Kaggle T4 and pulls the checkpoint back when it's done. One epoch over 14.2k
+samples takes ~2.6 h there.
 
 ### 5. Evaluation
 
@@ -114,6 +120,8 @@ chashma crawl --seeds configs/seeds.txt          # screenshots + boxes -> data/c
 chashma annotate --model anthropic:claude-haiku-5-5
 chashma build                                    # -> data/dataset/{train,val,test}.jsonl
 chashma train --config configs/train_256m.yaml   # -> checkpoints/chashma-256m
+# or on a free Kaggle T4 (KAGGLE_TOKEN in .env):
+scripts/kaggle_train.sh push && scripts/kaggle_train.sh watch
 
 chashma eval --model checkpoints/chashma-256m
 chashma eval --model checkpoints/chashma-256m --dataset screenspot --platform web
