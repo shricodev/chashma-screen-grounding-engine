@@ -76,13 +76,15 @@ def annotate(
 def build(
     captures: Path = typer.Option(CAPTURES),
     out: Path = typer.Option(DATASET),
-    templates: int = typer.Option(4, help="template instructions per capture"),
+    templates: int = typer.Option(-1, help="template instructions per capture, -1 = all"),
     seed: int = typer.Option(0),
 ) -> None:
     """Assemble captures + annotations into train/val/test splits."""
     from chashma.data.build import build_dataset
 
-    stats = build_dataset(captures, out, templates_per_capture=templates, seed=seed)
+    stats = build_dataset(
+        captures, out, templates_per_capture=templates if templates >= 0 else None, seed=seed
+    )
     table = Table("metric", "value")
     table.add_row("captures", str(stats.captures))
     table.add_row("near duplicates dropped", str(stats.near_duplicates))

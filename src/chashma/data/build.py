@@ -45,7 +45,11 @@ class BuildStats:
 
 
 def _samples_for(
-    capture: PageCapture, capture_dir: Path, split: str, rng: random.Random, templates: int
+    capture: PageCapture,
+    capture_dir: Path,
+    split: str,
+    rng: random.Random,
+    templates: int | None,
 ) -> list[GroundingSample]:
     by_idx = {e.idx: e for e in capture.elements}
     pairs: list[tuple[int, str, str, str]] = []
@@ -90,7 +94,7 @@ def _samples_for(
 def build_dataset(
     capture_dir: Path,
     out_dir: Path,
-    templates_per_capture: int = 4,
+    templates_per_capture: int | None = None,
     val_pct: int = 5,
     test_pct: int = 5,
     seed: int = 0,
