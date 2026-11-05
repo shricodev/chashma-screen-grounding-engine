@@ -13,7 +13,6 @@ jobs:
       - uses: astral-sh/setup-uv@v5
         with:
           python-version: "3.12"
-      # no torch in CI: the tests cover data, eval, and the API with a fake model
       - run: uv sync --extra crawl --extra serve
       - run: uv run playwright install --with-deps chromium
       - run: uv run ruff check .
