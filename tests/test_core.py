@@ -92,3 +92,45 @@ def test_scoring_and_breakdown():
     report = summarize("m", "d", records)
     assert report.accuracy == 0.5 and report.parse_rate == 0.5
     assert report.breakdown["type"]["icon"]["accuracy"] == 1.0
+
+
+def test_screenspot_platform_groups():
+    from chashma.eval.screenspot import resolve_platforms
+
+    assert resolve_platforms(["web"]) == {"tool", "shop", "gitlab", "forum"}
+    assert resolve_platforms(["ios", "desktop"]) == {"ios", "macos", "windows"}
+    assert resolve_platforms(None) is None
+    with pytest.raises(ValueError):
+        resolve_platforms(["webb"])
+
+
+def test_agent_step_log_line():
+    pytest.importorskip("playwright")
+    from chashma.agent.browser import Step
+
+    ok = Step(1, {"action": "type", "target": "search", "text": "asyncio"}, "u")
+    bad = Step(2, {"action": "click", "target": "Login"}, "u", error="not found")
+    assert ok.describe() == "1. type 'search' text='asyncio' -> ok"
+    assert bad.describe() == "2. click 'Login' -> FAILED: not found"
+
+
+def test_publish_prepares_card_and_skips_training_state(tmp_path):
+    from chashma.publish import publish
+
+    ckpt = tmp_path / "ckpt"
+    (ckpt / "checkpoint-200").mkdir(parents=True)
+    for name in ("model.safetensors", "config.json", "training_args.bin"):
+        (ckpt / name).write_text("x")
+    (ckpt / "chashma.json").write_text('{"base_model": "org/base", "train_samples": 1234}')
+    reports = tmp_path / "reports"
+    reports.mkdir()
+    (reports / "r.json").write_text(
+        '{"model": "ckpt", "dataset": "chashma-test", "n": 10, "accuracy": 0.5,'
+        ' "latency_p50_ms": 40.0}'
+    )
+
+    out = publish(ckpt, "me/chashma-test", reports, out_root=tmp_path / "dist")
+    files = {p.name for p in out.iterdir()}
+    assert files == {"model.safetensors", "config.json", "chashma.json", "README.md"}
+    card = (out / "README.md").read_text()
+    assert "base_model: org/base" in card and "1,234" in card and "50.0%" in card

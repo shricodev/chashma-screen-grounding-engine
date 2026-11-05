@@ -40,3 +40,14 @@ def test_rejects_bad_input():
         r = client.post("/v1/ground", files={"image": ("s.png", png())},
                         data={"instruction": " "})
         assert r.status_code == 422
+
+
+def test_http_grounder_roundtrip(monkeypatch):
+    import httpx
+
+    from chashma.model.grounder import HTTPGrounder
+
+    with TestClient(create_app(grounder=FakeGrounder())) as client:
+        monkeypatch.setattr(httpx, "post", client.post)
+        pred = HTTPGrounder("http://testserver").predict(Image.new("RGB", (64, 64)), "click")
+    assert pred.point == Point(0.25, 0.5)
