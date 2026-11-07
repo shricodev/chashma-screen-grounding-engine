@@ -18,25 +18,27 @@ kaggle() { uvx -q --from kaggle --with six kaggle "$@"; }
 USER_NAME="${KAGGLE_USER:-$(kaggle config view | awk '/username:/ {print $3}')}"
 DATASET="$USER_NAME/chashma-data"
 KERNEL="$USER_NAME/chashma-train"
+STAMP="$(git rev-parse --short HEAD)-$(date +%s)"
 
 stage_data() {
   rm -rf "$STAGE/data" && mkdir -p "$STAGE/data/configs" "$STAGE/data/captures"
   uv build --wheel -q -o "$STAGE/data"
   cp -r data/dataset "$STAGE/data/dataset"
   cp configs/train_256m.yaml "$STAGE/data/configs/"
+  touch "$STAGE/data/.stamp-$STAMP.txt"
   (cd data/captures && find . -name '*.png' -exec cp --parents {} "$STAGE/data/captures/" \;)
   cat > "$STAGE/data/dataset-metadata.json" <<EOF
 {"title": "chashma-data", "id": "$DATASET", "licenses": [{"name": "other"}]}
 EOF
 }
 
+# kaggle says ready even for the old version sometimes, so wait for our stamp
 wait_dataset_ready() {
-  for _ in $(seq 1 60); do
-    status="$(kaggle datasets status "$DATASET" 2>/dev/null || true)"
-    [[ "$status" == *ready* ]] && return 0
-    sleep 10
+  for _ in $(seq 1 120); do
+    kaggle datasets files "$DATASET" 2>/dev/null | grep -q ".stamp-$STAMP" && return 0
+    sleep 15
   done
-  echo "dataset $DATASET not ready after 10 minutes" >&2
+  echo "dataset version .stamp-$STAMP not live after 30 minutes" >&2
   return 1
 }
 
@@ -50,7 +52,7 @@ push() {
   wait_dataset_ready
 
   rm -rf "$STAGE/kernel" && mkdir -p "$STAGE/kernel"
-  cp scripts/kaggle/kernel.py "$STAGE/kernel/"
+  sed "s/__STAMP__/$STAMP/" scripts/kaggle/kernel.py > "$STAGE/kernel/kernel.py"
   cat > "$STAGE/kernel/kernel-metadata.json" <<EOF
 {
   "id": "$KERNEL",

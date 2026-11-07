@@ -7,6 +7,7 @@ from pathlib import Path
 
 INPUT = Path("/kaggle/input")
 WORK = Path("/kaggle/working")
+STAMP = "__STAMP__"  # kaggle_train.sh fills this in
 PINS = ["transformers==5.22.1", "peft==0.21.2", "accelerate==1.15.0"]
 
 
@@ -33,6 +34,8 @@ def locate_data() -> Path:
 
 
 def main() -> None:
+    if not STAMP.startswith("__") and find(f".stamp-{STAMP}.txt") is None:
+        raise RuntimeError(f"/kaggle/input is not the data version pushed with stamp {STAMP}")
     wheel = find("chashma-*.whl")
     if wheel is None:
         raise FileNotFoundError("chashma wheel not found in /kaggle/input")
