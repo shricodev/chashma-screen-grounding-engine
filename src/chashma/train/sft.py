@@ -13,8 +13,8 @@ from PIL import Image
 
 from chashma.data.build import load_samples
 from chashma.data.schema import GroundingSample
-from chashma.model.format import build_prompt, encode_point
-from chashma.model.grounder import load_processor
+from chashma.model.format import build_prompt, encode_point, parse_point
+from chashma.model.grounder import chat_messages, load_processor
 
 log = logging.getLogger(__name__)
 
@@ -53,6 +53,7 @@ class TrainConfig:
     max_train_samples: int | None = None
     max_eval_samples: int | None = 300
     pack_turns: int = 16
+    click_eval_samples: int = 150
     num_workers: int = 2
     seed: int = 0
     report_to: str = "none"
@@ -164,6 +165,31 @@ class Collator:
         return enc
 
 
+def click_accuracy(model, processor, samples: list[GroundingSample], image_root: Path) -> float:
+    import torch
+
+    device = next(model.parameters()).device
+    fp16 = device.type == "cuda" and next(model.parameters()).dtype == torch.float32
+    was_training = model.training
+    model.eval()
+    hits = 0
+    with torch.inference_mode(), torch.autocast("cuda", dtype=torch.float16, enabled=fp16):
+        for s in samples:
+            text = processor.apply_chat_template(
+                chat_messages(build_prompt(s.instruction)), add_generation_prompt=True
+            )
+            image = Image.open(image_root / s.image).convert("RGB")
+            inputs = processor(text=text, images=[image], return_tensors="pt").to(device)
+            out = model.generate(**inputs, max_new_tokens=16, do_sample=False)
+            answer = processor.batch_decode(
+                out[:, inputs["input_ids"].shape[1] :], skip_special_tokens=True
+            )[0]
+            point = parse_point(answer)
+            hits += point is not None and s.box.contains(point)
+    model.train(was_training)
+    return hits / max(1, len(samples))
+
+
 def _subset(samples: list, n: int | None, seed: int) -> list:
     if n is None or n >= len(samples):
         return samples
@@ -238,13 +264,25 @@ def train(cfg: TrainConfig) -> Path:
         save_steps=cfg.save_steps,
         save_total_limit=2,
         load_best_model_at_end=has_val,
-        metric_for_best_model="eval_loss" if has_val else None,
+        # not eval_loss, it bottoms out way before the model starts looking at the image
+        metric_for_best_model="click_acc" if has_val else None,
+        greater_is_better=True,
         remove_unused_columns=False,
         dataloader_num_workers=cfg.num_workers,
         seed=cfg.seed,
         report_to=cfg.report_to,
     )
-    trainer = Trainer(
+    click_samples = _subset(val_samples, cfg.click_eval_samples, cfg.seed)
+
+    class GroundingTrainer(Trainer):
+        def evaluate(self, *args, **kwargs):
+            metrics = super().evaluate(*args, **kwargs)
+            acc = click_accuracy(self.model, processor, click_samples, image_root)
+            metrics["eval_click_acc"] = acc
+            self.log({"eval_click_acc": acc})
+            return metrics
+
+    trainer = GroundingTrainer(
         model=model,
         args=args,
         train_dataset=GroundingDataset(train_groups, image_root),
