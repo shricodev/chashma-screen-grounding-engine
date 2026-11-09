@@ -40,6 +40,8 @@ def main() -> None:
     if wheel is None:
         raise FileNotFoundError("chashma wheel not found in /kaggle/input")
     sh(sys.executable, "-m", "pip", "install", "-q", str(wheel), *PINS)
+    # kaggle has an old torchao preinstalled and peft breaks with it
+    sh(sys.executable, "-m", "pip", "uninstall", "-y", "-q", "torchao")
 
     import yaml
 
