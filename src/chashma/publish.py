@@ -4,7 +4,7 @@ import json
 import shutil
 from pathlib import Path
 
-DEFAULT_BASE = "HuggingFaceTB/SmolVLM-256M-Instruct"
+DEFAULT_BASE = "Qwen/Qwen3-VL-2B-Instruct"
 SKIP = ("checkpoint-", "training_args.bin", "optimizer.pt", "scheduler.pt", "rng_state")
 
 
@@ -17,20 +17,28 @@ def export_checkpoint(model_path: Path, out_dir: Path) -> None:
     if out_dir.exists():
         shutil.rmtree(out_dir)
     out_dir.mkdir(parents=True)
+    meta = checkpoint_meta(model_path)
     adapter = model_path / "adapter_config.json"
-    if adapter.exists():
-        from peft import PeftModel
-        from transformers import AutoModelForImageTextToText, AutoProcessor
-
-        base = json.loads(adapter.read_text())["base_model_name_or_path"]
-        model = AutoModelForImageTextToText.from_pretrained(base)
-        model = PeftModel.from_pretrained(model, str(model_path)).merge_and_unload()
-        model.save_pretrained(out_dir)
-        AutoProcessor.from_pretrained(str(model_path)).save_pretrained(out_dir)
+    if not adapter.exists():
+        for item in model_path.iterdir():
+            if item.is_file() and not item.name.startswith(SKIP):
+                shutil.copy2(item, out_dir / item.name)
         return
-    for item in model_path.iterdir():
-        if item.is_file() and not item.name.startswith(SKIP):
-            shutil.copy2(item, out_dir / item.name)
+
+    import torch
+    from peft import PeftModel
+    from transformers import AutoModelForImageTextToText
+
+    from chashma.model.grounder import DEFAULT_MAX_PIXELS, load_processor
+
+    base = json.loads(adapter.read_text())["base_model_name_or_path"]
+    model = AutoModelForImageTextToText.from_pretrained(base, dtype=torch.bfloat16)
+    model = PeftModel.from_pretrained(model, str(model_path)).merge_and_unload()
+    model.save_pretrained(out_dir)
+    max_pixels = meta.get("max_pixels", DEFAULT_MAX_PIXELS)
+    load_processor(base, meta.get("longest_edge"), max_pixels).save_pretrained(out_dir)
+    meta.update(base_model=base, lora=False, max_pixels=max_pixels)
+    (out_dir / "chashma.json").write_text(json.dumps(meta, indent=2))
 
 
 def _results_table(reports_dir: Path) -> str:
@@ -71,13 +79,13 @@ tags:
 # {name}
 
 A small GUI grounding model: give it a screenshot and an instruction such as
-*"open the pricing page"* and it answers with where to click, as
-`<point>x,y</point>` on a 0..999 grid relative to the image.
+*"open the pricing page"* and it answers with where to click, as `(x, y)` on a
+0..1000 grid relative to the image.
 
-Fine-tuned from [{base_model}](https://huggingface.co/{base_model}) on {data_line}
-built by {project}: real websites rendered with
-Playwright, click targets taken from the DOM, instructions written by a vision LLM.
-Trained on a single 6 GB laptop GPU.
+LoRA fine-tune of [{base_model}](https://huggingface.co/{base_model}) on {data_line}
+built by {project}: real websites rendered with Playwright, click targets and labels
+taken from the DOM, instructions from templates plus a vision LLM. Trained on one free
+Kaggle T4; runs in about 5 GB of VRAM.
 
 ## Usage
 
@@ -85,14 +93,14 @@ Trained on a single 6 GB laptop GPU.
 from PIL import Image
 from chashma import load_grounder
 
-grounder = load_grounder("{repo_id}")
-pred = grounder.predict(Image.open("screenshot.png"), "open the pricing page")
-x, y = pred.point.to_pixels(*Image.open("screenshot.png").size)
+img = Image.open("screenshot.png")
+pred = load_grounder("{repo_id}").predict(img, "open the pricing page")
+x, y = pred.point.to_pixels(*img.size)
 ```
 
-Or with plain transformers, prompt with
-`Where should I click to: <instruction>\\nAnswer with the point.` and parse the
-`<point>x,y</point>` reply.
+With plain transformers, send the screenshot with the prompt
+`Point to the UI element I should click to: <instruction>. Answer with the click point as (x, y).`
+and scale the reply by `width / 1000`, `height / 1000`.
 
 ## Results
 
@@ -102,8 +110,8 @@ Click accuracy = the predicted point lands inside the target element's box.
 
 ## Limitations
 
-- Trained on desktop and mobile *web* pages in English; native mobile and desktop apps
-  are out of distribution.
+- Trained on desktop and mobile *web* pages; native mobile and desktop apps are out of
+  distribution.
 - Small targets on large screens are the main failure mode.
 - It predicts a location only. It has no notion of whether clicking is safe or
   intended; keep a human or a policy layer in the loop for agents acting on real
