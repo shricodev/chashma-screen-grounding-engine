@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import io
+import json
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -33,11 +34,21 @@ def chat_messages(prompt: str, answer: str | None = None) -> list[dict]:
     return messages
 
 
-def load_processor(model_id: str, longest_edge: int | None = None):
+DEFAULT_MAX_PIXELS = 1280 * 800
+DEFAULT_LONGEST_EDGE = 1536
+
+
+def load_processor(
+    model_id: str, longest_edge: int | None = None, max_pixels: int | None = None
+):
     from transformers import AutoProcessor
 
     processor = AutoProcessor.from_pretrained(model_id)
-    if longest_edge is not None:
+    if hasattr(processor.image_processor, "merge_size"):
+        # qwen's longest_edge is actually a pixel count, only the kwarg works
+        if max_pixels is not None:
+            processor = AutoProcessor.from_pretrained(model_id, max_pixels=max_pixels)
+    elif longest_edge is not None:
         processor.image_processor.size = {"longest_edge": longest_edge}
     return processor
 
@@ -47,7 +58,6 @@ class VLMGrounder:
         self,
         model_path: str | Path,
         base_model: str | None = None,
-        longest_edge: int | None = 1536,
         device: str | None = None,
         max_new_tokens: int = 16,
     ):
@@ -58,9 +68,10 @@ class VLMGrounder:
         adapter = Path(model_path) / "adapter_config.json"
         base = base_model or model_path
         if adapter.exists() and base_model is None:
-            import json
-
             base = json.loads(adapter.read_text())["base_model_name_or_path"]
+
+        meta_path = Path(model_path) / "chashma.json"
+        meta = json.loads(meta_path.read_text()) if meta_path.exists() else {}
 
         self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
         dtype = torch.bfloat16 if self.device == "cuda" else torch.float32
@@ -71,7 +82,11 @@ class VLMGrounder:
             model = PeftModel.from_pretrained(model, model_path).merge_and_unload()
         self.model = model.to(self.device).eval()
         proc_src = model_path if (Path(model_path) / "preprocessor_config.json").exists() else base
-        self.processor = load_processor(proc_src, longest_edge)
+        self.processor = load_processor(
+            proc_src,
+            longest_edge=meta.get("longest_edge", DEFAULT_LONGEST_EDGE),
+            max_pixels=meta.get("max_pixels", DEFAULT_MAX_PIXELS),
+        )
         self.max_new_tokens = max_new_tokens
         self.name = Path(model_path).name if Path(model_path).exists() else model_path
         self._torch = torch

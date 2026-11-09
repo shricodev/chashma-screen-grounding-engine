@@ -26,6 +26,7 @@ ml = [
     "torch>=2.4",
     "huggingface-hub>=0.26",
     "transformers>=4.50",
+    "torchvision>=0.29.2",
 ]
 serve = ["fastapi>=0.115", "python-multipart>=0.0.12", "uvicorn[standard]>=0.30"]
 all = ["chashma[crawl,llm,ml,serve]"]

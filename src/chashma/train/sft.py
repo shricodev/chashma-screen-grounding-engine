@@ -38,7 +38,8 @@ class TrainConfig:
     dataset: Path = Path("data/dataset")
     image_root: Path | None = None
     output_dir: Path = Path("checkpoints/chashma-256m")
-    longest_edge: int = 1536
+    longest_edge: int = 1536  # smolvlm
+    max_pixels: int = 1280 * 800  # qwen
     epochs: float = 2.0
     batch_size: int = 4
     grad_accum: int = 4
@@ -212,7 +213,7 @@ def train(cfg: TrainConfig) -> Path:
         len(train_samples), len(train_groups), len(val_samples),
     )
 
-    processor = load_processor(cfg.base_model, cfg.longest_edge)
+    processor = load_processor(cfg.base_model, cfg.longest_edge, cfg.max_pixels)
     # no bf16 on t4, so fp32 weights + fp16 autocast
     cuda = torch.cuda.is_available()
     bf16 = cuda and torch.cuda.get_device_capability()[0] >= 8
@@ -299,6 +300,7 @@ def train(cfg: TrainConfig) -> Path:
     meta = {
         "base_model": cfg.base_model,
         "longest_edge": cfg.longest_edge,
+        "max_pixels": cfg.max_pixels,
         "epochs": cfg.epochs,
         "train_samples": len(train_samples),
         "pack_turns": cfg.pack_turns,
