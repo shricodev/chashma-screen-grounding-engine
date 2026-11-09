@@ -251,7 +251,9 @@ class Crawler:
         return True
 
     async def _same_site_links(self, page: Page, url: str) -> list[str]:
-        hrefs = await page.eval_on_selector_all("a[href]", "els => els.map(e => e.href)")
+        hrefs = await page.eval_on_selector_all(
+            "a[href]", "els => els.map(e => e.href).filter(h => typeof h === 'string')"
+        )
         domain = domain_of(url)
         out = []
         for href in set(hrefs):
