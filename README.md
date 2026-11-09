@@ -182,6 +182,9 @@ docker run --gpus all -p 8000:8000 \
 curl localhost:8000/health
 ```
 
+`--gpus all` needs the [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html).
+Without it the same image runs on CPU (~9 GB RAM, ~20 s per click).
+
 ## Layout
 
 ```
