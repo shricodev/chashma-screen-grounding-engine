@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # scripts/kaggle_train.sh push|status|pull|watch
-# needs KAGGLE_TOKEN in env or .env
+# needs KAGGLE_TOKEN in env or .env. CONFIG=configs/x.yaml to pick a config
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -19,12 +19,14 @@ USER_NAME="${KAGGLE_USER:-$(kaggle config view | awk '/username:/ {print $3}')}"
 DATASET="$USER_NAME/chashma-data"
 KERNEL="$USER_NAME/chashma-train"
 STAMP="$(git rev-parse --short HEAD)-$(date +%s)"
+CONFIG="${CONFIG:-configs/train_qwen3vl_2b.yaml}"
+RUN_NAME="$(basename "$(awk '/^output_dir:/ {print $2}' "$CONFIG")")"
 
 stage_data() {
   rm -rf "$STAGE/data" && mkdir -p "$STAGE/data/configs" "$STAGE/data/captures"
   uv build --wheel -q -o "$STAGE/data"
   cp -r data/dataset "$STAGE/data/dataset"
-  cp configs/train_256m.yaml "$STAGE/data/configs/"
+  cp "$CONFIG" "$STAGE/data/configs/train.yaml"
   touch "$STAGE/data/.stamp-$STAMP.txt"
   (cd data/captures && find . -name '*.png' -exec cp --parents {} "$STAGE/data/captures/" \;)
   cat > "$STAGE/data/dataset-metadata.json" <<EOF
@@ -76,13 +78,13 @@ status() { kaggle kernels status "$KERNEL"; }
 pull() {
   rm -rf "$STAGE/output" && mkdir -p "$STAGE/output"
   kaggle kernels output "$KERNEL" -p "$STAGE/output"
-  [[ -f "$STAGE/output/chashma-256m/model.safetensors" ]] || {
+  [[ -f "$STAGE/output/$RUN_NAME/chashma.json" ]] || {
     echo "no checkpoint in kernel output, see $STAGE/output" >&2
     exit 1
   }
-  rm -rf checkpoints/chashma-256m && mkdir -p checkpoints
-  mv "$STAGE/output/chashma-256m" checkpoints/chashma-256m
-  echo "checkpoint -> checkpoints/chashma-256m"
+  rm -rf "checkpoints/$RUN_NAME" && mkdir -p checkpoints
+  mv "$STAGE/output/$RUN_NAME" "checkpoints/$RUN_NAME"
+  echo "checkpoint -> checkpoints/$RUN_NAME"
 }
 
 watch() {

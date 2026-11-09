@@ -1,0 +1,20 @@
+# lora on the llm only, vision tower stays frozen
+base_model: Qwen/Qwen3-VL-2B-Instruct
+dataset: data/dataset
+output_dir: checkpoints/chashma-qwen3vl-2b
+max_pixels: 1024000
+pack_turns: 16
+epochs: 1
+batch_size: 1
+grad_accum: 8
+lr: 1.0e-4
+warmup_ratio: 0.03
+gradient_checkpointing: true
+eval_steps: 100
+save_steps: 100
+max_eval_samples: 200
+click_eval_samples: 100
+lora:
+  enabled: true
+  r: 16
+  alpha: 32

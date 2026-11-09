@@ -44,14 +44,12 @@ def main() -> None:
     import yaml
 
     data = locate_data()
-    cfg = yaml.safe_load((data / "configs" / "train_256m.yaml").read_text())
+    cfg = yaml.safe_load((data / "configs" / "train.yaml").read_text())
     cfg.update(
         dataset=str(data / "dataset"),
         image_root=str(data / "captures"),
-        output_dir=str(WORK / "chashma-256m"),
+        output_dir=str(WORK / Path(cfg["output_dir"]).name),
         num_workers=4,
-        batch_size=4,
-        grad_accum=2,
         keep_checkpoints=False,
     )
     config = WORK / "train.yaml"
