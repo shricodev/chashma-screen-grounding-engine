@@ -5,9 +5,11 @@ ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy PYTHONUNBUFFERED=1
 
 WORKDIR /app
 COPY pyproject.toml uv.lock README.md ./
-RUN uv sync --frozen --no-dev --no-install-project --extra ml --extra serve
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --frozen --no-dev --no-install-project --extra ml --extra serve
 COPY src ./src
-RUN uv sync --frozen --no-dev --extra ml --extra serve
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --frozen --no-dev --extra ml --extra serve
 
 ENV CHASHMA_MODEL=/models/chashma
 EXPOSE 8000

@@ -5,3 +5,5 @@ checkpoints
 reports
 runs
 **/__pycache__
+dist
+.env
