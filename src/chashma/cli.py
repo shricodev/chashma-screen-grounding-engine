@@ -10,6 +10,8 @@ from dotenv import load_dotenv
 from rich.console import Console
 from rich.table import Table
 
+from chashma.model.grounder import DEFAULT_MODEL
+
 app = typer.Typer(no_args_is_help=True, add_completion=False)
 console = Console()
 
@@ -99,7 +101,7 @@ def build(
 
 @app.command()
 def train(
-    config: Path = typer.Option(Path("configs/train_256m.yaml")),
+    config: Path = typer.Option(Path("configs/train_qwen3vl_2b.yaml")),
     max_train_samples: int | None = typer.Option(None),
     epochs: float | None = typer.Option(None),
     output_dir: Path | None = typer.Option(None),
@@ -178,7 +180,7 @@ def eval_cmd(
 def predict(
     image: Path = typer.Argument(..., exists=True),
     instruction: str = typer.Argument(...),
-    model: str = typer.Option("checkpoints/chashma-256m"),
+    model: str = typer.Option(DEFAULT_MODEL),
     save: Path | None = typer.Option(None, help="write the screenshot with the click drawn"),
 ) -> None:
     """Ground one instruction on one screenshot."""
@@ -204,7 +206,7 @@ def predict(
 
 @app.command()
 def serve(
-    model: str = typer.Option("checkpoints/chashma-256m"),
+    model: str = typer.Option(DEFAULT_MODEL),
     host: str = typer.Option("127.0.0.1"),
     port: int = typer.Option(8000),
 ) -> None:
@@ -218,8 +220,8 @@ def serve(
 
 @app.command()
 def publish(
-    repo: str = typer.Option(..., help="Hugging Face repo id, e.g. user/chashma-256m"),
-    model: Path = typer.Option(Path("checkpoints/chashma-256m"), exists=True, file_okay=False),
+    repo: str = typer.Option(..., help="Hugging Face repo id, e.g. user/chashma-qwen3vl-2b"),
+    model: Path = typer.Option(Path(DEFAULT_MODEL), exists=True, file_okay=False),
     reports: Path = typer.Option(Path("reports"), help="eval reports for the model card"),
     source_url: str | None = typer.Option(None, help="link to the code, shown on the card"),
     push: bool = typer.Option(False, help="upload; without it only dist/hf/ is prepared"),
@@ -242,7 +244,7 @@ def agent(
     task: str = typer.Argument(..., help="what the agent should do"),
     url: str = typer.Option(..., help="start page"),
     grounder: str = typer.Option(
-        "checkpoints/chashma-256m", help="checkpoint, http://host:port, or provider:model"
+        DEFAULT_MODEL, help="checkpoint, http://host:port, or provider:model"
     ),
     planner: str = typer.Option("anthropic:claude-sonnet-5-5", help="provider:model"),
     max_steps: int = typer.Option(15),

@@ -11,7 +11,7 @@ from PIL import Image, UnidentifiedImageError
 from pydantic import BaseModel
 
 from chashma import __version__
-from chashma.model.grounder import Grounder, load_grounder
+from chashma.model.grounder import DEFAULT_MODEL, Grounder, load_grounder
 
 MAX_UPLOAD_BYTES = 10 * 1024 * 1024
 MAX_PIXELS = 4096 * 4096
@@ -37,7 +37,7 @@ def create_app(model: str | None = None, grounder: Grounder | None = None) -> Fa
     @asynccontextmanager
     async def lifespan(_: FastAPI):
         state["grounder"] = grounder or load_grounder(
-            model or os.environ.get("CHASHMA_MODEL", "checkpoints/chashma-256m")
+            model or os.environ.get("CHASHMA_MODEL", DEFAULT_MODEL)
         )
         yield
         state.clear()

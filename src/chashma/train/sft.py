@@ -35,10 +35,10 @@ class LoraConfig:
 
 @dataclass
 class TrainConfig:
-    base_model: str = "HuggingFaceTB/SmolVLM-256M-Instruct"
+    base_model: str = "Qwen/Qwen3-VL-2B-Instruct"
     dataset: Path = Path("data/dataset")
     image_root: Path | None = None
-    output_dir: Path = Path("checkpoints/chashma-256m")
+    output_dir: Path = Path("checkpoints/chashma-qwen3vl-2b")
     longest_edge: int = 1536  # smolvlm
     max_pixels: int = 1280 * 800  # qwen
     epochs: float = 2.0
