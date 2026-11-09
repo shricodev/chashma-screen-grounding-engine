@@ -125,7 +125,7 @@ def train(
 
 @app.command("eval")
 def eval_cmd(
-    model: str = typer.Option(..., help="checkpoint dir, HF id, or provider:model"),
+    model: str = typer.Option(DEFAULT_MODEL, help="checkpoint dir, HF id, or provider:model"),
     dataset: str = typer.Option("chashma", help="'chashma' (our test split) or 'screenspot'"),
     data_dir: Path = typer.Option(DATASET),
     split: str = typer.Option("test"),
