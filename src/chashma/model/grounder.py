@@ -82,7 +82,8 @@ class VLMGrounder:
 
             model = PeftModel.from_pretrained(model, model_path).merge_and_unload()
         self.model = model.to(self.device).eval()
-        proc_src = model_path if (Path(model_path) / "preprocessor_config.json").exists() else base
+        saved = ("processor_config.json", "preprocessor_config.json")
+        proc_src = model_path if any((Path(model_path) / f).exists() for f in saved) else base
         self.processor = load_processor(
             proc_src,
             longest_edge=meta.get("longest_edge", DEFAULT_LONGEST_EDGE),
