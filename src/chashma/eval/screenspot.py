@@ -35,19 +35,18 @@ def load_screenspot(
 
     sources = resolve_platforms(platforms)
     ds = load_dataset(HF_DATASET, split=split)
+    meta = ds.select_columns(["data_source", "instruction", "bbox", "data_type"])
     examples = []
-    for i, row in enumerate(ds):
+    for i, row in enumerate(meta):
         source = row["data_source"]
         if sources is not None and source not in sources:
             continue
-        image = row["image"]
-        w, h = image.size
         examples.append(
             EvalExample(
                 id=f"screenspot-{i}",
                 instruction=row["instruction"],
-                box=_to_box(row["bbox"], w, h),
-                load_image=(lambda img=image: img.convert("RGB")),
+                box=_lazy_box(ds, i, row["bbox"]),
+                load_image=(lambda i=i: ds[i]["image"].convert("RGB")),
                 tags={
                     "platform": SOURCE_TO_GROUP.get(source, source),
                     "source": source,
@@ -58,6 +57,12 @@ def load_screenspot(
         if limit and len(examples) >= limit:
             break
     return examples
+
+
+def _lazy_box(ds, i: int, bbox: list[float]) -> Box:
+    if max(float(v) for v in bbox) <= 1.0:
+        return _to_box(bbox, 1, 1)
+    return _to_box(bbox, *ds[i]["image"].size)
 
 
 def _to_box(bbox: list[float], w: int, h: int) -> Box:
