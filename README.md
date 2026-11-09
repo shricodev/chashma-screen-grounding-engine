@@ -1,34 +1,65 @@
 # chashma
 
-**A tiny GUI grounding model that runs on a laptop GPU.** Give it a screenshot and
-an instruction like *"open the pricing page"* and it tells you where to click.
+**A small GUI grounding model you can run on a laptop GPU.** Give it a screenshot and an
+instruction like *"open the pricing page"* and it tells you where to click.
 
-Computer-use agents spend most of their budget on one question, *where on this
-screen is the thing I want?*, and today they answer it by sending every screenshot
-to a frontier model. chashma is a ~256M-parameter vision-language model fine-tuned
-for just that question. It trains in under 3.5 GB of VRAM (a 6 GB laptop RTX 3060 or a
-free Kaggle T4), on data that labels itself.
+Computer-use agents spend most of their budget on one question, *where on this screen is
+the thing I want?*, and usually answer it by sending every screenshot to a frontier
+model. chashma is [Qwen3-VL-2B](https://huggingface.co/Qwen/Qwen3-VL-2B-Instruct)
+fine-tuned for just that question on 60k examples from real websites that label
+themselves. It runs locally in ~5 GB of VRAM and was trained on one free Kaggle T4.
 
 ```bash
-chashma predict shot.png "search for a department" --save out.png
+chashma predict mailchimp.png "call the Mailchimp sales phone number" --save out.png
+# click at (949, 75)  raw='(741, 93)'  1481ms      <- lands on "Sales: +1 (...)" in the header
 ```
+
+## Results
+
+Click accuracy = the predicted point lands inside the target element's box. The chashma
+test split is 300 questions on websites (domains) never seen in training.
+
+| model | chashma test | ScreenSpot web | p50 latency | runs |
+| --- | --- | --- | --- | --- |
+| Qwen3-VL-2B (base) | 78.0% | 81.9% | 613 ms | local, RTX 3060 |
+| **chashma (Qwen3-VL-2B + LoRA)** | **84.7%** | 82.6% | 613 ms | local, RTX 3060 |
+| Claude Haiku 5.5 | 90.7% | 93.1% | 1680 ms | API |
+
+Where fine-tuning helped most (chashma test, base → fine-tuned):
+
+| slice | n | base | chashma | Haiku |
+| --- | --- | --- | --- | --- |
+| mobile viewport | 60 | 46.7% | **66.7%** | 75.0% |
+| direct ("click Sign in") | 29 | 75.9% | **96.6%** | 100% |
+| dark theme | 106 | 73.6% | **83.0%** | 90.6% |
+| icons | 43 | 72.1% | **76.7%** | 90.7% |
+| functional ("log into my account") | 35 | 60.0% | 68.6% | 94.3% |
+
+On unseen websites from the same kind of crawl, fine-tuning closes about half the gap
+between the base model and a frontier API model, at the same speed. On ScreenSpot, a
+different benchmark built from other sites with its own labeling, it holds level (+0.7,
+within noise for n=436): better on dev tools (68.3% → 79.1%), worse on forums
+(85.4% → 77.5%). The data makes the model better at the web it was trained on without
+making it a better general pointer, and the weakest spot is clear: instructions that
+describe a *goal* rather than the thing on screen need more reasoning than a 2B model
+brings.
 
 ## How it works
 
 ```
- seed URLs ──► Playwright ──► screenshot + DOM boxes ──► set-of-marks ──► Claude / GPT
-                 │  3 viewports, light/dark,         (free labels)     overlay     writes instructions
-                 │  scrolled positions                                              (direct / functional / visual)
+ seed URLs ──► Playwright ──► screenshot + DOM boxes ──► templates + LLM instructions
+                 │  3 viewports, light/dark,        (free labels)
+                 │  scrolled positions
                  ▼
-          stability + occlusion filters ──► dataset (split by domain) ──► SmolVLM fine-tune ──► eval + API
+       stability + occlusion filters ──► dataset (split by domain) ──► LoRA on Qwen3-VL ──► eval / API / agent
 ```
 
 ### 1. Data that labels itself
 
 The browser already knows where every button is. The crawler renders real sites with
-Playwright and runs [`extract.js`](src/chashma/data/extract.js) in the page to pull
-every interactive element with its exact bounding box. The hard part is throwing away
-the boxes that would be wrong labels:
+Playwright and runs [`extract.js`](src/chashma/data/extract.js) in the page to pull every
+interactive element with its exact bounding box. The hard part is throwing away boxes that
+would be wrong labels:
 
 | problem | fix |
 | --- | --- |
@@ -38,104 +69,117 @@ the boxes that would be wrong labels:
 | `<a><button>` nesting producing duplicate targets | IoU-based dedupe |
 | full-page click handlers | drop anything bigger than half the viewport |
 
-Each page is captured in a sample of variants (desktop / laptop / mobile, light / dark,
-top / scrolled) so the model sees the same UI in different shapes.
+Seeds come from the [Tranco](https://tranco-list.eu) top sites
+([`scripts/make_seeds.py`](scripts/make_seeds.py)), filtered for adult and infrastructure
+domains, one site per brand. Each page is captured in a sample of variants (desktop /
+laptop / mobile, light / dark, top / scrolled).
 
-### 2. Instructions from an LLM, one call per page
+Current dataset: 3,442 screenshots from 1,373 domains, 67,884 questions (10k on icons).
 
-Boxes alone aren't enough; the model needs to learn how people *ask* for things.
-[`annotate.py`](src/chashma/data/annotate.py) draws numbered marks on ~8
-non-overlapping targets (round-robin over icons, inputs and text so icons aren't drowned
-out) and asks a vision LLM for three instruction styles per mark:
+### 2. Instructions: free templates plus an LLM
 
-- **direct**: "click Sign in"
-- **functional**: "log into my account" (the goal, not the label)
-- **visual**: "the magnifying glass at the top right" (essential for icons)
+Boxes alone aren't enough; the model has to learn how people *ask* for things.
 
-One call covers all marks on a page, so annotation costs about one image per
-screenshot rather than one per element. Instructions that mention the overlay ("click
-box 3") are filtered out, since there are no marks at inference time. Free template
-instructions ("click Pricing") are mixed in, but only for labels that are unique on the
-page.
+- **templates** ("click Pricing", "open the search field") are free and come straight from
+  the element's text, aria-label or placeholder, only when that label is unique on the page.
+- **LLM instructions** ([`annotate.py`](src/chashma/data/annotate.py)): numbered marks are
+  drawn on ~8 non-overlapping targets and a vision LLM writes three styles per mark in one
+  call per page: *direct* ("click Sign in"), *functional* ("log into my account") and
+  *visual* ("the magnifying glass at the top right"). Instructions that mention the
+  overlay ("click box 3") are dropped, since there are no marks at inference time.
 
 ### 3. A split that doesn't cheat
 
 A site's header and nav repeat on every page, so a random split leaks test targets into
-training. Splits are assigned **per domain** (hash-bucketed), and near-identical
-captures (e.g. a "dark" variant of a site without dark mode) are dropped with a
-perceptual hash.
+training. Splits are assigned **per domain**, and near-identical captures (e.g. a "dark"
+variant of a site without dark mode) are dropped with a perceptual hash.
 
-### 4. Training on 6 GB
+### 4. Training
 
-The model answers in a tiny fixed format, `<point>x,y</point>` on a 0..999 grid,
-so outputs are a few tokens and resolution-independent. The loss is masked to the
-answer tokens only. SmolVLM-256M fits a full fine-tune in bf16 with gradient
-checkpointing (3.45 GB peak at batch 4); SmolVLM-500M trains with LoRA. Configs are in
-[`configs/`](configs). On pre-Ampere GPUs (T4, P100) it falls back to fp16 autocast.
+- **Answer format**: Qwen's native `(x, y)` on a 0..1000 grid, so the model fine-tunes the
+  pointing it already knows instead of learning a new syntax.
+- **Packing**: up to 16 questions about one screenshot go in one multi-turn sequence, so the
+  ~1000 image tokens are encoded once instead of 16 times. A group never asks about the same
+  element twice (otherwise later turns copy earlier answers), and is capped at 800 text
+  tokens (non-Latin pages tokenize long and used to run the T4 out of memory).
+- **Loss** on the answer tokens only.
+- **LoRA** r=16 on the language model's attention and MLP (17M trainable parameters).
+- **Checkpoint selection by click accuracy**, measured by generating on held-out sites
+  during training. Eval loss bottoms out early, while the model still guesses common
+  positions without looking at the image.
 
-Long runs on a laptop hit thermal throttling (the 3060 dropped to 210 MHz at 89 °C), so
-[`scripts/kaggle_train.sh`](scripts/kaggle_train.sh) ships the dataset and a wheel to a
-free Kaggle T4 and pulls the checkpoint back when it's done. One epoch over 14.2k
-samples takes ~2.6 h there.
+Laptops thermal-throttle on multi-hour runs (the 3060 dropped to 210 MHz at 89 °C), so
+[`scripts/kaggle_train.sh`](scripts/kaggle_train.sh) ships the dataset and a wheel to a free
+Kaggle T4, waits for that exact dataset version, and pulls the checkpoint back. One epoch
+takes ~5 h.
+
+#### What didn't work
+
+The first version fine-tuned SmolVLM-256M. Packing, more data and better checkpoint
+selection all helped the loss, but click accuracy stayed at 5-7%: a model with no
+localization pretraining learned to guess where buttons usually are, not to look. A
+real-vs-blank-image loss check (0.831 vs 0.827) made that visible. Starting from a model
+that already points (Qwen3-VL, 78% zero-shot) and teaching it this domain worked on the
+first full run.
 
 ### 5. Evaluation
 
-Click accuracy = the predicted point falls inside the target box. The same harness
-scores local checkpoints and API baselines (`anthropic:...`, `openai:...`) on:
-
-- the held-out chashma test split (unseen domains), broken down by instruction style,
-  icon vs text, viewport and theme
-- [ScreenSpot](https://huggingface.co/datasets/rootsautomation/ScreenSpot) (web, plus
-  mobile/desktop to measure transfer)
+The same harness scores local checkpoints and API baselines (`anthropic:...`,
+`openai:...`) on the held-out test split, broken down by instruction style, icon vs text,
+viewport and theme, and on
+[ScreenSpot](https://huggingface.co/datasets/rootsautomation/ScreenSpot) web.
 
 ### 6. The agent: plan in words, click with chashma
 
 [`agent/browser.py`](src/chashma/agent/browser.py) splits a browser agent in two. The
 planner LLM sees a downscaled screenshot and only decides *what* to do next, in words
 ("type asyncio into the quick search field"). chashma decides *where*. The planner never
-emits coordinates, so it can work from cheap low-res images, and the precise part runs
+emits coordinates, so it works from cheap low-res images, and the precise part runs
 locally. Every run saves per-step screenshots with the click drawn on them, a
 `trajectory.json` and a GIF.
 
 ```bash
 chashma agent "open the documentation page for the asyncio module" \
-  --url https://docs.python.org/3/ --grounder checkpoints/chashma-256m --headed
+  --url https://docs.python.org/3/ --headed
 ```
 
 `--grounder` also takes `http://localhost:8000` (a running `chashma serve`) or
 `anthropic:<model>` to compare against a frontier model doing both jobs.
-
-## Results
-
-_Coming once the first full crawl + training run is done._
 
 ## Usage
 
 ```bash
 uv sync --all-extras
 uv run playwright install chromium
-echo "ANTHROPIC_API_KEY=..." > .env    # or OPENAI_API_KEY for openai:<model>
+echo "ANTHROPIC_API_KEY=..." > .env    # only for LLM instructions, baselines and the agent planner
 
-chashma crawl --seeds configs/seeds.txt          # screenshots + boxes -> data/captures
-chashma annotate --model anthropic:claude-haiku-5-5
+uv run python scripts/make_seeds.py --top 3000    # -> data/seeds_tranco.txt
+chashma crawl --seeds data/seeds_tranco.txt      # screenshots + boxes -> data/captures
+chashma annotate --model anthropic:claude-haiku-5-5   # optional, costs API calls
 chashma build                                    # -> data/dataset/{train,val,test}.jsonl
-chashma train --config configs/train_256m.yaml   # -> checkpoints/chashma-256m
+
+chashma train                                    # configs/train_qwen3vl_2b.yaml
 # or on a free Kaggle T4 (KAGGLE_TOKEN in .env):
 scripts/kaggle_train.sh push && scripts/kaggle_train.sh watch
 
-chashma eval --model checkpoints/chashma-256m
-chashma eval --model checkpoints/chashma-256m --dataset screenspot --platform web
-chashma eval --model anthropic:claude-haiku-5-5 --limit 200   # baseline
+chashma eval --split test --limit 300
+chashma eval --dataset screenspot --platform web
+chashma eval --model anthropic:claude-haiku-5-5 --split test --limit 300   # baseline
 
-chashma serve --model checkpoints/chashma-256m
+chashma serve
 curl -F image=@shot.png -F instruction="open settings" localhost:8000/v1/ground
 ```
 
-Docker (GPU):
+The default model is `checkpoints/chashma-qwen3vl-2b`; every command takes `--model`.
+
+### Docker (GPU)
 
 ```bash
+chashma publish --repo you/chashma-qwen3vl-2b       # merged weights -> dist/hf/chashma-qwen3vl-2b
 docker build -t chashma .
-docker run --gpus all -p 8000:8000 -v $PWD/checkpoints/chashma-256m:/models/chashma chashma
+docker run --gpus all -p 8000:8000 \
+  -v $PWD/dist/hf/chashma-qwen3vl-2b:/models/chashma:ro chashma
+curl localhost:8000/health
 ```
 
 ## Layout
@@ -144,18 +188,17 @@ docker run --gpus all -p 8000:8000 -v $PWD/checkpoints/chashma-256m:/models/chas
 src/chashma/
   data/      extract.js, crawler, set-of-marks, annotation, templates, dataset build
   model/     answer format, local VLM / API / HTTP grounders
-  train/     SFT (full or LoRA)
+  train/     SFT with image packing (full or LoRA)
   eval/      click-accuracy harness, ScreenSpot loader
   serve/     FastAPI app
   agent/     planner + grounder browser agent
+scripts/     Tranco seeds, Kaggle training
 ```
 
 ## Roadmap
 
-- [x] demo agent: Claude plans in text, chashma grounds each step
-- [ ] bigger crawl (Tranco top ~2k)
+- [ ] more LLM-written functional instructions (the weakest slice)
 - [ ] crop/zoom augmentation for small targets
-- [ ] verifier pass: a second model must click the right mark, or the instruction is dropped
 - [ ] agent benchmark: task success and cost, chashma vs frontier grounding
-- [ ] ONNX / int8 export for CPU inference
+- [ ] int8 / GGUF export for CPU inference
 - [ ] RL fine-tuning with a "click landed in box" reward
