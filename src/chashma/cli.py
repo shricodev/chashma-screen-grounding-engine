@@ -261,7 +261,7 @@ def agent(
     logging.getLogger("chashma").setLevel(logging.INFO)
     out = out or Path("runs/agent") / datetime.now().strftime("%Y%m%d-%H%M%S")
     runner = BrowserAgent(
-        VisionLLM(planner, max_tokens=1024),
+        VisionLLM(planner, max_tokens=8000),
         load_grounder(grounder),
         out,
         max_steps=max_steps,

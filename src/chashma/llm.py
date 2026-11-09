@@ -53,11 +53,8 @@ class VisionLLM:
         if self.provider == "anthropic":
             extra = {}
             if schema is not None:
-                extra = {
-                    "tools": [{"name": "respond", "description": "Submit the answer.",
-                               "input_schema": schema}],
-                    "tool_choice": {"type": "tool", "name": "respond"},
-                }
+                extra = {"output_config": {"format": {"type": "json_schema",
+                                                      "schema": _closed(schema)}}}
             resp = await self._client.messages.create(
                 model=self.model,
                 max_tokens=self.max_tokens,
@@ -71,12 +68,7 @@ class VisionLLM:
                     ],
                 }],
             )
-            if schema is not None:
-                text = next(
-                    (json.dumps(b.input) for b in resp.content if b.type == "tool_use"), ""
-                )
-            else:
-                text = "".join(b.text for b in resp.content if b.type == "text")
+            text = "".join(b.text for b in resp.content if b.type == "text")
             reply = VisionReply(text, resp.usage.input_tokens, resp.usage.output_tokens)
         else:
             extra = {"response_format": {"type": "json_object"}} if schema is not None else {}
@@ -98,6 +90,13 @@ class VisionLLM:
             reply = VisionReply(text, u.prompt_tokens if u else 0, u.completion_tokens if u else 0)
         self.usage.add(reply.input_tokens, reply.output_tokens)
         return reply
+
+
+def _closed(schema: dict) -> dict:
+    out = {k: _closed(v) if isinstance(v, dict) else v for k, v in schema.items()}
+    if out.get("type") == "object":
+        out["additionalProperties"] = False
+    return out
 
 
 _JSON_BLOCK = re.compile(r"\{.*\}", re.DOTALL)
