@@ -15,7 +15,7 @@ class FakeGrounder:
     name = "fake"
 
     def predict(self, image, instruction):
-        return Prediction(Point(0.25, 0.5), "<point>250,500</point>", 1.0)
+        return Prediction(Point(0.25, 0.5), "(250, 500)", 1.0)
 
 
 def png(w=200, h=100) -> bytes:

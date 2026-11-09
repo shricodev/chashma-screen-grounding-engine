@@ -25,12 +25,12 @@ def test_box_from_pixels_clips_to_screen():
 
 def test_point_roundtrip_lands_in_same_cell():
     p = Point(0.4237, 0.9999)
-    assert encode_point(p) == "<point>423,999</point>"
+    assert encode_point(p) == "(423, 999)"
     back = parse_point(encode_point(p))
     assert abs(back.x - p.x) < 1e-3 and abs(back.y - p.y) < 1e-3
 
 
-@pytest.mark.parametrize("text", ["", "no idea", "<point>1200,5</point>"])
+@pytest.mark.parametrize("text", ["", "no idea", "(1200, 5)"])
 def test_parse_point_rejects_garbage(text):
     assert parse_point(text) is None
 
