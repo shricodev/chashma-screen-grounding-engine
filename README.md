@@ -113,6 +113,10 @@ Laptops thermal-throttle on multi-hour runs (the 3060 dropped to 210 MHz at 89 Â
 Kaggle T4, waits for that exact dataset version, and pulls the checkpoint back. One epoch
 takes ~5 h.
 
+The released model is step 500 of 773. Validation click accuracy plateaus around step 300,
+and the full epoch tied it on the test split (84.7%) while scoring slightly lower on
+ScreenSpot web (81.9% vs 82.6%), so the earlier checkpoint stays.
+
 #### What didn't work
 
 The first version fine-tuned SmolVLM-256M. Packing, more data and better checkpoint
