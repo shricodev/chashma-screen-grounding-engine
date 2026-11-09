@@ -5,6 +5,7 @@ import logging
 import random
 import shutil
 from collections import defaultdict
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -54,6 +55,7 @@ class TrainConfig:
     max_train_samples: int | None = None
     max_eval_samples: int | None = 300
     pack_turns: int = 16
+    pack_text_tokens: int = 800
     click_eval_samples: int = 150
     num_workers: int = 2
     seed: int = 0
@@ -74,7 +76,11 @@ class TrainConfig:
 
 
 def pack_by_image(
-    samples: list[GroundingSample], max_turns: int, seed: int = 0
+    samples: list[GroundingSample],
+    max_turns: int,
+    seed: int = 0,
+    max_tokens: int | None = None,
+    ntokens: Callable[[GroundingSample], int] = lambda s: 0,
 ) -> list[list[GroundingSample]]:
     by_image: dict[str, list[GroundingSample]] = defaultdict(list)
     for s in samples:
@@ -91,11 +97,15 @@ def pack_by_image(
         rng.shuffle(queues)
         ordered = [q[k] for k in range(max(map(len, queues))) for q in queues if k < len(q)]
         group: list[GroundingSample] = []
+        used = 0
         for s in ordered:
-            if len(group) >= max_turns or any(g.bbox == s.bbox for g in group):
+            cost = ntokens(s)
+            full = len(group) >= max_turns or (max_tokens is not None and used + cost > max_tokens)
+            if group and (full or any(g.bbox == s.bbox for g in group)):
                 groups.append(group)
-                group = []
+                group, used = [], 0
             group.append(s)
+            used += cost
         groups.append(group)
     return groups
 
@@ -206,14 +216,20 @@ def train(cfg: TrainConfig) -> Path:
     val_samples, _ = load_samples(cfg.dataset, "val", cfg.image_root)
     train_samples = _subset(train_samples, cfg.max_train_samples, cfg.seed)
     val_samples = _subset(val_samples, cfg.max_eval_samples, cfg.seed)
-    train_groups = pack_by_image(train_samples, cfg.pack_turns, cfg.seed)
-    val_groups = pack_by_image(val_samples, cfg.pack_turns, cfg.seed)
+    processor = load_processor(cfg.base_model, cfg.longest_edge, cfg.max_pixels)
+
+    def ntokens(s: GroundingSample) -> int:
+        turn = build_prompt(s.instruction) + encode_point(s.box.center)
+        return len(processor.tokenizer(turn).input_ids) + 10
+
+    def pack(samples: list[GroundingSample]) -> list[list[GroundingSample]]:
+        return pack_by_image(samples, cfg.pack_turns, cfg.seed, cfg.pack_text_tokens, ntokens)
+
+    train_groups, val_groups = pack(train_samples), pack(val_samples)
     log.info(
         "train=%d samples in %d sequences, val=%d samples",
         len(train_samples), len(train_groups), len(val_samples),
     )
-
-    processor = load_processor(cfg.base_model, cfg.longest_edge, cfg.max_pixels)
     # no bf16 on t4, so fp32 weights + fp16 autocast
     cuda = torch.cuda.is_available()
     bf16 = cuda and torch.cuda.get_device_capability()[0] >= 8
@@ -304,6 +320,7 @@ def train(cfg: TrainConfig) -> Path:
         "epochs": cfg.epochs,
         "train_samples": len(train_samples),
         "pack_turns": cfg.pack_turns,
+        "pack_text_tokens": cfg.pack_text_tokens,
         "lora": cfg.lora.enabled,
     }
     (cfg.output_dir / "chashma.json").write_text(json.dumps(meta, indent=2))

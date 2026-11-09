@@ -168,3 +168,6 @@ def test_packing_never_repeats_an_element():
     for g in groups:
         assert len(g) <= 4 and len({s.image for s in g}) == 1
         assert len({tuple(s.bbox) for s in g}) == len(g)
+
+    capped = pack_by_image(samples, max_turns=4, max_tokens=25, ntokens=lambda s: 10)
+    assert all(len(g) <= 2 for g in capped) and sum(map(len, capped)) == len(samples)
