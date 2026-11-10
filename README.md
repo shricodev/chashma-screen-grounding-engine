@@ -1,7 +1,25 @@
-# chashma
+<p align="center">
+  <img src="docs/assets/chashma.jpg" width="520" alt="Pencil sketch of thick round glasses with a click target in one lens">
+</p>
 
-**A small GUI grounding model you can run on a laptop GPU.** Give it a screenshot and an
-instruction like *"open the pricing page"* and it tells you where to click.
+<h1 align="center">chashma</h1>
+
+<p align="center">
+  <b>A screen grounding engine that runs on a laptop GPU.</b><br>
+  Screenshot + <i>"open the pricing page"</i> → the exact point to click.
+</p>
+
+<p align="center">
+  <a href="https://github.com/shricodev/chashma-screen-grounding-engine/actions/workflows/ci.yml"><img src="https://github.com/shricodev/chashma-screen-grounding-engine/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://huggingface.co/shricodev/chashmish-babubhaiya"><img src="https://img.shields.io/badge/%F0%9F%A4%97%20model-chashmish--babubhaiya-ffcc4d" alt="Hugging Face model"></a>
+  <img src="https://img.shields.io/badge/python-3.12-3776ab" alt="Python 3.12">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-2ea44f" alt="MIT license"></a>
+</p>
+
+<p align="center">
+  <img src="docs/assets/agent-demo.gif" width="760" alt="Browser agent opening the asyncio docs: a planner says what to do, chashma finds where to click">
+  <br><sub>The browser agent: Claude plans each step in words, chashma finds where to click, locally.</sub>
+</p>
 
 Computer-use agents spend most of their budget on one question, *where on this screen is
 the thing I want?*, and usually answer it by sending every screenshot to a frontier
@@ -9,25 +27,36 @@ model. chashma is [Qwen3-VL-2B](https://huggingface.co/Qwen/Qwen3-VL-2B-Instruct
 fine-tuned for just that question on 60k examples from real websites that label
 themselves. It runs locally in ~5 GB of VRAM and was trained on one free Kaggle T4.
 
+The weights are on Hugging Face as
+[`shricodev/chashmish-babubhaiya`](https://huggingface.co/shricodev/chashmish-babubhaiya).
+This repo is everything around them: the crawler that builds the data, training, evaluation,
+an HTTP API, Docker, and a browser agent. The Python package and CLI are called `chashma`.
+
 ```bash
 chashma predict mailchimp.png "call the Mailchimp sales phone number" --save out.png
 # click at (949, 75)  raw='(741, 93)'  1481ms      <- lands on "Sales: +1 (...)" in the header
 ```
 
+<p align="center">
+  <img src="docs/assets/demo-click.png" width="760" alt="Predicted click drawn on the Mailchimp homepage, on the sales phone number">
+</p>
+
 ## Results
 
-Click accuracy = the predicted point lands inside the target element's box. The chashma
-test split is 300 questions on websites (domains) never seen in training.
+Click accuracy = the predicted point lands inside the target element's box. The test split
+is 300 questions on websites (domains) never seen in training.
 
-| model | chashma test | ScreenSpot web | p50 latency | runs |
+| model | own test (unseen sites) | ScreenSpot web | p50 latency | runs |
 | --- | --- | --- | --- | --- |
 | Qwen3-VL-2B (base) | 78.0% | 81.9% | 613 ms | local, RTX 3060 |
 | **chashma (Qwen3-VL-2B + LoRA)** | **84.7%** | 82.6% | 613 ms | local, RTX 3060 |
 | Claude Haiku 5.5 | 90.7% | 93.1% | 1680 ms | API |
 
-Where fine-tuning helped most (chashma test, base → fine-tuned):
+<p align="center">
+  <img src="docs/assets/results.png" width="720" alt="Click accuracy by slice for the base model, chashma and Claude Haiku">
+</p>
 
-| slice | n | base | chashma | Haiku |
+| slice (own test) | n | base | chashma | Haiku |
 | --- | --- | --- | --- | --- |
 | mobile viewport | 60 | 46.7% | **66.7%** | 75.0% |
 | direct ("click Sign in") | 29 | 75.9% | **96.6%** | 100% |
@@ -46,20 +75,22 @@ brings.
 
 ## How it works
 
-```
- seed URLs ──► Playwright ──► screenshot + DOM boxes ──► templates + LLM instructions
-                 │  3 viewports, light/dark,        (free labels)
-                 │  scrolled positions
-                 ▼
-       stability + occlusion filters ──► dataset (split by domain) ──► LoRA on Qwen3-VL ──► eval / API / agent
-```
+<p align="center">
+  <img src="docs/assets/architecture.png" width="860" alt="Architecture: crawl and label, train with LoRA on Kaggle, serve via CLI, API, Docker and a browser agent">
+</p>
 
 ### 1. Data that labels itself
 
 The browser already knows where every button is. The crawler renders real sites with
 Playwright and runs [`extract.js`](src/chashma/data/extract.js) in the page to pull every
-interactive element with its exact bounding box. The hard part is throwing away boxes that
-would be wrong labels:
+interactive element with its exact bounding box.
+
+<p align="center">
+  <img src="docs/assets/dom-labels.png" width="720" alt="Every clickable element on a page, boxed straight from the DOM; blue are icons">
+  <br><sub>Labels straight from the DOM, no human in the loop. Blue boxes are icons.</sub>
+</p>
+
+The hard part is throwing away boxes that would be wrong labels:
 
 | problem | fix |
 | --- | --- |
@@ -108,6 +139,10 @@ variant of a site without dark mode) are dropped with a perceptual hash.
   during training. Eval loss bottoms out early, while the model still guesses common
   positions without looking at the image.
 
+<p align="center">
+  <img src="docs/assets/training-curve.png" width="640" alt="Validation click accuracy rising from 81% to 90% over 500 training steps">
+</p>
+
 Laptops thermal-throttle on multi-hour runs (the 3060 dropped to 210 MHz at 89 °C), so
 [`scripts/kaggle_train.sh`](scripts/kaggle_train.sh) ships the dataset and a wheel to a free
 Kaggle T4, waits for that exact dataset version, and pulls the checkpoint back. One epoch
@@ -140,7 +175,7 @@ planner LLM sees a downscaled screenshot and only decides *what* to do next, in 
 ("type asyncio into the quick search field"). chashma decides *where*. The planner never
 emits coordinates, so it works from cheap low-res images, and the precise part runs
 locally. Every run saves per-step screenshots with the click drawn on them, a
-`trajectory.json` and a GIF.
+`trajectory.json` and a GIF (like the one at the top).
 
 ```bash
 chashma agent "open the documentation page for the asyncio module" \
@@ -153,8 +188,23 @@ chashma agent "open the documentation page for the asyncio module" \
 ## Usage
 
 ```bash
+git clone https://github.com/shricodev/chashma-screen-grounding-engine
+cd chashma-screen-grounding-engine
 uv sync --all-extras
 uv run playwright install chromium
+```
+
+Just use the model (downloads [`shricodev/chashmish-babubhaiya`](https://huggingface.co/shricodev/chashmish-babubhaiya) on first run):
+
+```bash
+uv run chashma predict shot.png "open the pricing page" --save out.png
+uv run chashma serve
+curl -F image=@shot.png -F instruction="open settings" localhost:8000/v1/ground
+```
+
+Build the data, train and evaluate your own:
+
+```bash
 echo "ANTHROPIC_API_KEY=..." > .env    # only for LLM instructions, baselines and the agent planner
 
 uv run python scripts/make_seeds.py --top 3000    # -> data/seeds_tranco.txt
@@ -169,22 +219,24 @@ scripts/kaggle_train.sh push && scripts/kaggle_train.sh watch
 chashma eval --split test --limit 300
 chashma eval --dataset screenspot --platform web
 chashma eval --model anthropic:claude-haiku-5-5 --split test --limit 300   # baseline
-
-chashma serve
-curl -F image=@shot.png -F instruction="open settings" localhost:8000/v1/ground
 ```
 
-The default model is `checkpoints/chashma-qwen3vl-2b`; every command takes `--model`.
+Every command takes `--model`. Without it, a local `checkpoints/chashma-qwen3vl-2b` is used
+if you trained one, otherwise the Hugging Face model.
 
 ### Docker (GPU)
 
 ```bash
-chashma publish --repo you/chashma-qwen3vl-2b       # merged weights -> dist/hf/chashma-qwen3vl-2b
 docker build -t chashma .
 docker run --gpus all -p 8000:8000 \
-  -v $PWD/dist/hf/chashma-qwen3vl-2b:/models/chashma:ro chashma
+  -e CHASHMA_MODEL=shricodev/chashmish-babubhaiya \
+  -v ~/.cache/huggingface:/root/.cache/huggingface chashma
 curl localhost:8000/health
 ```
+
+To serve your own checkpoint instead, export it with
+`chashma publish --repo you/your-model` and mount `dist/hf/your-model` at
+`/models/chashma` (the default `CHASHMA_MODEL`).
 
 `--gpus all` needs the [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html).
 Without it the same image runs on CPU (~9 GB RAM, ~20 s per click).
@@ -209,3 +261,10 @@ scripts/     Tranco seeds, Kaggle training
 - [ ] agent benchmark: task success and cost, chashma vs frontier grounding
 - [ ] int8 / GGUF export for CPU inference
 - [ ] RL fine-tuning with a "click landed in box" reward
+
+## License
+
+Code: [MIT](LICENSE). Model weights: Apache-2.0, same as the
+[Qwen3-VL-2B](https://huggingface.co/Qwen/Qwen3-VL-2B-Instruct) base model. Screenshots in
+`docs/assets/` are of public pages and only illustrate the results; the training data is not
+redistributed.
