@@ -10,7 +10,7 @@ from dotenv import load_dotenv
 from rich.console import Console
 from rich.table import Table
 
-from chashma.model.grounder import DEFAULT_MODEL
+from chashma.model.grounder import DEFAULT_MODEL, LOCAL_MODEL
 
 app = typer.Typer(no_args_is_help=True, add_completion=False)
 console = Console()
@@ -221,7 +221,7 @@ def serve(
 @app.command()
 def publish(
     repo: str = typer.Option(..., help="Hugging Face repo id, e.g. user/chashma-qwen3vl-2b"),
-    model: Path = typer.Option(Path(DEFAULT_MODEL), exists=True, file_okay=False),
+    model: Path = typer.Option(Path(LOCAL_MODEL), exists=True, file_okay=False),
     reports: Path = typer.Option(Path("reports"), help="eval reports for the model card"),
     source_url: str | None = typer.Option(None, help="link to the code, shown on the card"),
     push: bool = typer.Option(False, help="upload; without it only dist/hf/ is prepared"),

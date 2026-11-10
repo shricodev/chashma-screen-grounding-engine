@@ -34,7 +34,9 @@ def chat_messages(prompt: str, answer: str | None = None) -> list[dict]:
     return messages
 
 
-DEFAULT_MODEL = "checkpoints/chashma-qwen3vl-2b"
+LOCAL_MODEL = "checkpoints/chashma-qwen3vl-2b"
+HUB_MODEL = "shricodev/chashmish-babubhaiya"
+DEFAULT_MODEL = LOCAL_MODEL if Path(LOCAL_MODEL).exists() else HUB_MODEL
 DEFAULT_MAX_PIXELS = 1280 * 800
 DEFAULT_LONGEST_EDGE = 1536
 
