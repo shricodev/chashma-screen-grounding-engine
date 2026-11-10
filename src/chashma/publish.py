@@ -41,12 +41,14 @@ def export_checkpoint(model_path: Path, out_dir: Path) -> None:
     (out_dir / "chashma.json").write_text(json.dumps(meta, indent=2))
 
 
-def _results_table(reports_dir: Path) -> str:
+def _results_table(reports_dir: Path, aliases: dict[str, str] | None = None) -> str:
     rows = []
     for path in sorted(reports_dir.glob("*.json")):
         r = json.loads(path.read_text())
+        model = (aliases or {}).get(r["model"], r["model"])
+        dataset = (aliases or {}).get(r["dataset"], r["dataset"])
         rows.append(
-            f"| {r['model']} | {r['dataset']} | {r['n']} | {r['accuracy']:.1%} "
+            f"| {model} | {dataset} | {r['n']} | {r['accuracy']:.1%} "
             f"| {r['latency_p50_ms']:.0f} ms |"
         )
     if not rows:
@@ -56,13 +58,25 @@ def _results_table(reports_dir: Path) -> str:
 
 
 def model_card(
-    repo_id: str, base_model: str, meta: dict, reports_dir: Path, source_url: str | None = None
+    repo_id: str,
+    base_model: str,
+    meta: dict,
+    reports_dir: Path,
+    source_url: str | None = None,
+    local_name: str | None = None,
 ) -> str:
     name = repo_id.split("/")[-1]
-    project = f"[chashma]({source_url})" if source_url else "chashma"
+    built_by = f" built with [this code]({source_url})" if source_url else ""
+    aliases = {
+        "chashma-test-n300": "unseen websites (own test set)",
+        "screenspot-web": "ScreenSpot web",
+    }
+    if local_name:
+        aliases[local_name] = f"**{name}**"
     trained_on = meta.get("train_samples")
     data_line = (
-        f"{trained_on:,} (screenshot, instruction, box) examples" if trained_on
+        f"{trained_on:,} (screenshot, instruction, box) examples"
+        if trained_on
         else "(screenshot, instruction, box) examples"
     )
     return f"""---
@@ -82,31 +96,47 @@ A small GUI grounding model: give it a screenshot and an instruction such as
 *"open the pricing page"* and it answers with where to click, as `(x, y)` on a
 0..1000 grid relative to the image.
 
-LoRA fine-tune of [{base_model}](https://huggingface.co/{base_model}) on {data_line}
-built by {project}: real websites rendered with Playwright, click targets and labels
+LoRA fine-tune of [{base_model}](https://huggingface.co/{base_model}) on {data_line}{built_by}:
+real websites rendered with Playwright, click targets and labels
 taken from the DOM, instructions from templates plus a vision LLM. Trained on one free
 Kaggle T4; runs in about 5 GB of VRAM.
 
 ## Usage
 
 ```python
-from PIL import Image
-from chashma import load_grounder
+import re
 
-img = Image.open("screenshot.png")
-pred = load_grounder("{repo_id}").predict(img, "open the pricing page")
-x, y = pred.point.to_pixels(*img.size)
+from PIL import Image
+from transformers import AutoModelForImageTextToText, AutoProcessor
+
+repo = "{repo_id}"
+model = AutoModelForImageTextToText.from_pretrained(repo, dtype="auto", device_map="auto")
+processor = AutoProcessor.from_pretrained(repo)
+
+image = Image.open("screenshot.png").convert("RGB")
+instruction = "open the pricing page"
+prompt = (
+    f"Point to the UI element I should click to: {{instruction}}. "
+    "Answer with the click point as (x, y)."
+)
+content = [{{"type": "image"}}, {{"type": "text", "text": prompt}}]
+messages = [{{"role": "user", "content": content}}]
+text = processor.apply_chat_template(messages, add_generation_prompt=True)
+inputs = processor(text=text, images=[image], return_tensors="pt").to(model.device)
+
+out = model.generate(**inputs, max_new_tokens=16, do_sample=False)
+reply = processor.decode(out[0, inputs["input_ids"].shape[1]:], skip_special_tokens=True)
+x, y = (int(v) for v in re.findall(r"\\d+", reply)[:2])
+print(x * image.width / 1000, y * image.height / 1000)  # click point in pixels
 ```
 
-With plain transformers, send the screenshot with the prompt
-`Point to the UI element I should click to: <instruction>. Answer with the click point as (x, y).`
-and scale the reply by `width / 1000`, `height / 1000`.
+The reply is `(x, y)` on a 0..1000 grid; scale by the image size to get pixels.
 
 ## Results
 
 Click accuracy = the predicted point lands inside the target element's box.
 
-{_results_table(reports_dir)}
+{_results_table(reports_dir, aliases)}
 
 ## Limitations
 
@@ -132,7 +162,12 @@ def publish(
     out_dir = out_root / repo_id.split("/")[-1]
     export_checkpoint(model_path, out_dir)
     card = model_card(
-        repo_id, meta.get("base_model", DEFAULT_BASE), meta, reports_dir, source_url
+        repo_id,
+        meta.get("base_model", DEFAULT_BASE),
+        meta,
+        reports_dir,
+        source_url,
+        local_name=model_path.name,
     )
     (out_dir / "README.md").write_text(card)
     if not push:
@@ -143,6 +178,9 @@ def publish(
     api = HfApi()
     api.create_repo(repo_id, private=private, exist_ok=True)
     commit = api.upload_folder(
-        folder_path=str(out_dir), repo_id=repo_id, commit_message="upload chashma checkpoint"
+        folder_path=str(out_dir),
+        repo_id=repo_id,
+        commit_message="upload model",
+        ignore_patterns=["chashma.json"],
     )
     return commit.commit_url
