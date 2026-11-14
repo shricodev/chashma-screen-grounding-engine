@@ -287,6 +287,7 @@ name = "chashma"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "httpx" },
     { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
     { name = "numpy", version = "2.5.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
     { name = "pillow" },
@@ -303,7 +304,6 @@ all = [
     { name = "anthropic" },
     { name = "datasets" },
     { name = "fastapi" },
-    { name = "httpx" },
     { name = "huggingface-hub" },
     { name = "openai" },
     { name = "peft" },
@@ -315,7 +315,6 @@ all = [
     { name = "uvicorn", extra = ["standard"] },
 ]
 crawl = [
-    { name = "httpx" },
     { name = "playwright" },
 ]
 llm = [
@@ -351,7 +350,7 @@ requires-dist = [
     { name = "chashma", extras = ["crawl", "llm", "ml", "serve"], marker = "extra == 'all'" },
     { name = "datasets", marker = "extra == 'ml'", specifier = ">=3.0" },
     { name = "fastapi", marker = "extra == 'serve'", specifier = ">=0.115" },
-    { name = "httpx", marker = "extra == 'crawl'", specifier = ">=0.27" },
+    { name = "httpx", specifier = ">=0.27" },
     { name = "huggingface-hub", marker = "extra == 'ml'", specifier = ">=0.26" },
     { name = "numpy", specifier = ">=1.26" },
     { name = "openai", marker = "extra == 'llm'", specifier = ">=1.50" },

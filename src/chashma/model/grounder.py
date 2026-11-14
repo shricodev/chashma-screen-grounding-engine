@@ -47,12 +47,16 @@ def load_processor(
     from transformers import AutoProcessor
 
     processor = AutoProcessor.from_pretrained(model_id)
-    if hasattr(processor.image_processor, "merge_size"):
-        # qwen's longest_edge is actually a pixel count, only the kwarg works
+    ip = processor.image_processor
+    if hasattr(ip, "merge_size"):
+        # qwen's longest_edge is actually a pixel count
         if max_pixels is not None:
-            processor = AutoProcessor.from_pretrained(model_id, max_pixels=max_pixels)
+            size = {k: v for k, v in dict(ip.size).items() if v is not None}
+            ip.size = {**size, "longest_edge": max_pixels}
+        # older checkpoints have max_pixels saved in the tokenizer config and it wins over size
+        processor.tokenizer.init_kwargs.pop("max_pixels", None)
     elif longest_edge is not None:
-        processor.image_processor.size = {"longest_edge": longest_edge}
+        ip.size = {"longest_edge": longest_edge}
     return processor
 
 

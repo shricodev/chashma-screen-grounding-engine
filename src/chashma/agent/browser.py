@@ -132,10 +132,9 @@ class BrowserAgent:
                         break
             finally:
                 await browser.close()
-
-        result.planner_input_tokens = self.planner.usage.input_tokens
-        result.planner_output_tokens = self.planner.usage.output_tokens
-        self._save(result)
+                result.planner_input_tokens = self.planner.usage.input_tokens
+                result.planner_output_tokens = self.planner.usage.output_tokens
+                self._save(result)
         return result
 
     def _follow_new_tabs(self, context: BrowserContext) -> None:

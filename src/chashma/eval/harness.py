@@ -117,7 +117,7 @@ def summarize(model: str, dataset: str, records: list[EvalRecord]) -> EvalReport
         }
         for key, values in groups.items()
     }
-    latencies = [r.latency_ms for r in records]
+    latencies = [r.latency_ms for r in records if r.latency_ms > 0]
     return EvalReport(
         model=model,
         dataset=dataset,

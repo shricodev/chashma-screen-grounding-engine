@@ -138,6 +138,8 @@ def eval_cmd(
     from chashma.eval.harness import evaluate, examples_from_samples, write_report
     from chashma.model.grounder import load_grounder
 
+    if dataset not in ("chashma", "screenspot"):
+        raise typer.BadParameter("expected 'chashma' or 'screenspot'", param_hint="--dataset")
     name = dataset
     if dataset == "screenspot":
         from chashma.eval.screenspot import load_screenspot
